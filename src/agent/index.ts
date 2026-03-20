@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Client, ThreadChannel } from 'discord.js';
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
-import { TOOL_DEFINITIONS, executeTool, ActualConfig } from './tools';
+import { TOOL_DEFINITIONS, executeTool, createToolCache, ActualConfig } from './tools';
 import { getSession, saveSession } from '../db/sessions';
 import { createProposal } from '../db/proposals';
 import { getOrCreateThread, postToThread, postApprovalMessage } from '../discord/threads';
@@ -47,6 +47,7 @@ export function getAppContext(): AppContext {
 
 export async function runAgent(threadId: string, userMessage: string): Promise<string> {
   const { db, actualConfig, anthropic, discord } = appContext;
+  const toolCache = createToolCache();
 
   const history = getSession(db, threadId) ?? [];
   history.push({ role: 'user', content: sanitize(userMessage) });
@@ -78,7 +79,8 @@ export async function runAgent(threadId: string, userMessage: string): Promise<s
           toolUse.input as Record<string, unknown>,
           actualConfig,
           db,
-          (txId, category, reason, account, payee, amount) => proposeCategoryImpl(txId, category, reason, threadId, discord, db, account, payee, amount)
+          (txId, category, reason, account, payee, amount) => proposeCategoryImpl(txId, category, reason, threadId, discord, db, account, payee, amount),
+          toolCache
         );
       } catch (err) {
         result = { error: String(err) };
