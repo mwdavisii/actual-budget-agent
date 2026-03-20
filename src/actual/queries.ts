@@ -28,14 +28,17 @@ export interface ScheduledTransaction {
 }
 
 export async function getUncategorizedTransactions(): Promise<Transaction[]> {
+  const accounts = await actualApi.getAccounts() as Array<{ id: string; closed: boolean }>;
+  const openAccountIds = accounts.filter((a) => !a.closed).map((a) => a.id);
+
   const result = await actualApi.runQuery(
     actualApi.q('transactions')
       .filter({
         category: null,
         transfer_id: null,
-        is_parent: false,
-        'account.closed': false,
+        account: { $oneof: openAccountIds },
       })
+      .options({ splits: 'none' })
       .select(['id', 'date', 'amount', 'payee', 'notes', 'account'])
   );
   return (result as { data: Record<string, unknown>[] }).data.map((tx) => sanitizeObject(tx) as unknown as Transaction);
