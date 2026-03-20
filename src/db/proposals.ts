@@ -1,6 +1,15 @@
 import type Database from 'better-sqlite3';
 
-const TTL_SECONDS = 24 * 60 * 60;
+const DEFAULT_proposalTtlSeconds = 24 * 60 * 60;
+let proposalTtlSeconds = DEFAULT_proposalTtlSeconds;
+
+export function setProposalTtl(seconds: number): void {
+  proposalTtlSeconds = seconds;
+}
+
+export function getProposalTtl(): number {
+  return proposalTtlSeconds;
+}
 
 export interface Proposal {
   id: string;
@@ -17,7 +26,7 @@ export function createProposal(
   db: Database.Database,
   p: Omit<Proposal, 'status' | 'expiresAt'>
 ): void {
-  const expiresAt = Math.floor(Date.now() / 1000) + TTL_SECONDS;
+  const expiresAt = Math.floor(Date.now() / 1000) + proposalTtlSeconds;
   db.prepare(`
     INSERT INTO pending_proposals (id, tx_id, category, reason, thread_id, message_id, expires_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -34,6 +43,14 @@ export function getPendingProposals(db: Database.Database): Proposal[] {
     id: r.id, txId: r.tx_id, category: r.category, reason: r.reason,
     threadId: r.thread_id, messageId: r.message_id, status: r.status, expiresAt: r.expires_at,
   }));
+}
+
+export function hasActiveProposal(db: Database.Database, txId: string): boolean {
+  const now = Math.floor(Date.now() / 1000);
+  const row = db.prepare(
+    "SELECT 1 FROM pending_proposals WHERE tx_id = ? AND status = 'pending' AND expires_at > ? LIMIT 1"
+  ).get(txId, now);
+  return row != null;
 }
 
 export function updateProposalStatus(

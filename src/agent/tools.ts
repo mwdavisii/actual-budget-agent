@@ -7,7 +7,6 @@ import {
   getScheduledTransactions,
 } from '../actual/queries';
 import { getPendingProposals } from '../db/proposals';
-import { logger } from '../logger';
 import type Database from 'better-sqlite3';
 
 export interface ActualConfig {
@@ -76,37 +75,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
   },
 ];
 
-const CACHEABLE_TOOLS = new Set([
-  'getUncategorizedTransactions', 'getTransactions', 'getBudgetStatus',
-  'getScheduledTransactions', 'getPendingProposals',
-]);
-
-export function createToolCache(): Map<string, unknown> {
-  return new Map();
-}
-
 export async function executeTool(
-  toolName: string,
-  input: Record<string, unknown>,
-  actualConfig: ActualConfig,
-  db: Database.Database,
-  proposeCategoryFn: (txId: string, category: string, reason: string, account?: string, payee?: string, amount?: number) => Promise<string>,
-  cache?: Map<string, unknown>
-): Promise<unknown> {
-  if (cache && CACHEABLE_TOOLS.has(toolName)) {
-    const cacheKey = `${toolName}:${JSON.stringify(input)}`;
-    if (cache.has(cacheKey)) {
-      logger.debug('Tool cache hit', { toolName });
-      return cache.get(cacheKey);
-    }
-    const result = await executeToolImpl(toolName, input, actualConfig, db, proposeCategoryFn);
-    cache.set(cacheKey, result);
-    return result;
-  }
-  return executeToolImpl(toolName, input, actualConfig, db, proposeCategoryFn);
-}
-
-async function executeToolImpl(
   toolName: string,
   input: Record<string, unknown>,
   actualConfig: ActualConfig,

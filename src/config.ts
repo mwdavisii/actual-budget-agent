@@ -21,6 +21,7 @@ export interface SecretsConfig {
 export interface DynamicConfig {
   overspendThresholdDollars: number;
   emailCategories: string[];
+  proposalTtlHours: number;
 }
 
 const CONFIGMAP_PATH = process.env.CONFIGMAP_PATH ?? '/config/settings.json';
@@ -58,12 +59,14 @@ export function getDynamicConfig(): DynamicConfig {
     return {
       overspendThresholdDollars: parsed.overspendThresholdDollars ?? 50,
       emailCategories: parsed.emailCategories ?? ["Natalie's Spending", 'Dining Out', 'Groceries'],
+      proposalTtlHours: parsed.proposalTtlHours ?? 24,
     };
   } catch (err) {
     logger.warn('Failed to read ConfigMap — using defaults', { err: String(err) });
     return {
       overspendThresholdDollars: 50,
       emailCategories: ["Natalie's Spending", 'Dining Out', 'Groceries'],
+      proposalTtlHours: 24,
     };
   }
 }

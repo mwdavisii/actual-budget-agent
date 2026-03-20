@@ -10,8 +10,8 @@ process.on('unhandledRejection', (err) => {
 import { getDb } from './db/client';
 import { runMigrations } from './db/schema';
 import { archiveExpiredSessions } from './db/sessions';
-import { getPendingProposals, updateProposalMessageId, expireStaleProposals } from './db/proposals';
-import { getSecrets } from './config';
+import { getPendingProposals, updateProposalMessageId, expireStaleProposals, setProposalTtl } from './db/proposals';
+import { getSecrets, getDynamicConfig } from './config';
 import { createDiscordClient, loginDiscord } from './discord/client';
 import { createWebhookServer } from './webhook/server';
 import { registerMessageHandler } from './discord/router';
@@ -32,6 +32,9 @@ async function main() {
   runMigrations(db);
   archiveExpiredSessions(db, 7);
   expireStaleProposals(db);
+
+  const { proposalTtlHours } = getDynamicConfig();
+  setProposalTtl(proposalTtlHours * 60 * 60);
 
   const discord = createDiscordClient();
   const emailTransporter = createEmailClient({
@@ -93,6 +96,8 @@ async function main() {
 
   // Hourly maintenance
   setInterval(() => {
+    const config = getDynamicConfig();
+    setProposalTtl(config.proposalTtlHours * 60 * 60);
     expireStaleProposals(db);
     archiveExpiredSessions(db, 7);
     logger.debug('Ran hourly maintenance');

@@ -2,9 +2,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Client, ThreadChannel } from 'discord.js';
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
-import { TOOL_DEFINITIONS, executeTool, createToolCache, ActualConfig } from './tools';
+import { TOOL_DEFINITIONS, executeTool, ActualConfig } from './tools';
 import { getSession, saveSession } from '../db/sessions';
-import { createProposal } from '../db/proposals';
+import { createProposal, hasActiveProposal } from '../db/proposals';
 import { getOrCreateThread, postToThread, postApprovalMessage } from '../discord/threads';
 import { sanitize } from '../sanitize';
 import { logger } from '../logger';
@@ -47,7 +47,6 @@ export function getAppContext(): AppContext {
 
 export async function runAgent(threadId: string, userMessage: string): Promise<string> {
   const { db, actualConfig, anthropic, discord } = appContext;
-  const toolCache = createToolCache();
 
   const history = getSession(db, threadId) ?? [];
   history.push({ role: 'user', content: sanitize(userMessage) });
@@ -79,8 +78,7 @@ export async function runAgent(threadId: string, userMessage: string): Promise<s
           toolUse.input as Record<string, unknown>,
           actualConfig,
           db,
-          (txId, category, reason, account, payee, amount) => proposeCategoryImpl(txId, category, reason, threadId, discord, db, account, payee, amount),
-          toolCache
+          (txId, category, reason, account, payee, amount) => proposeCategoryImpl(txId, category, reason, threadId, discord, db, account, payee, amount)
         );
       } catch (err) {
         result = { error: String(err) };
@@ -119,6 +117,11 @@ async function proposeCategoryImpl(
   payee?: string,
   amount?: number
 ): Promise<string> {
+  if (hasActiveProposal(db, txId)) {
+    logger.info('Skipping proposal — active proposal exists', { txId, category });
+    return `Skipped: transaction ${txId} already has a pending proposal.`;
+  }
+
   const thread = await discord.channels.fetch(threadId) as ThreadChannel;
   const amountStr = amount != null ? `$${(Math.abs(amount) / 100).toFixed(2)}` : '';
   const payeeLine = payee ? `\nPayee: **${sanitize(payee)}**` : '';
