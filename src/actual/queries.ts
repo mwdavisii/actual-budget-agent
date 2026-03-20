@@ -7,7 +7,7 @@ export interface Transaction {
   amount: number;
   payee: string;
   category: string | null;
-  memo: string | null;
+  notes: string | null;
   account: string;
 }
 
@@ -31,7 +31,7 @@ export async function getUncategorizedTransactions(): Promise<Transaction[]> {
   const result = await actualApi.runQuery(
     actualApi.q('transactions')
       .filter({ category: null })
-      .select(['id', 'date', 'amount', 'payee', 'memo', 'account'])
+      .select(['id', 'date', 'amount', 'payee', 'notes', 'account'])
   );
   return (result as { data: Record<string, unknown>[] }).data.map((tx) => sanitizeObject(tx) as unknown as Transaction);
 }
@@ -45,7 +45,7 @@ export async function getTransactions(filters: {
   amountMax?: number;
 }): Promise<Transaction[]> {
   let query = actualApi.q('transactions')
-    .select(['id', 'date', 'amount', 'payee', 'category', 'memo', 'account']);
+    .select(['id', 'date', 'amount', 'payee', 'category', 'notes', 'account']);
   if (filters.startDate) query = query.filter({ date: { $gte: filters.startDate } });
   if (filters.endDate) query = query.filter({ date: { $lte: filters.endDate } });
   if (filters.accountId) query = query.filter({ account: filters.accountId });
