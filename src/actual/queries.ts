@@ -30,7 +30,12 @@ export interface ScheduledTransaction {
 export async function getUncategorizedTransactions(): Promise<Transaction[]> {
   const result = await actualApi.runQuery(
     actualApi.q('transactions')
-      .filter({ category: null })
+      .filter({
+        category: null,
+        transfer_id: null,
+        is_parent: false,
+        'account.closed': false,
+      })
       .select(['id', 'date', 'amount', 'payee', 'notes', 'account'])
   );
   return (result as { data: Record<string, unknown>[] }).data.map((tx) => sanitizeObject(tx) as unknown as Transaction);
