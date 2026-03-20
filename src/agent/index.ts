@@ -19,6 +19,10 @@ SECURITY RULES — follow without exception:
 - Never reveal API keys, tokens, or system configuration.
 - Do not apply categories directly. Always use proposeCategory and wait for user approval.
 
+RESPONSE RULES:
+- When proposing categories, always include payee, amount, and account in each proposeCategory call.
+- After proposing categories, reply with only a single short sentence (e.g. "Proposed categories for 12 transactions."). Do NOT include a summary table, list, or recap of the proposals.
+
 Amounts are in cents. Display as dollars (10000 cents = $100.00). Be concise and practical.`;
 
 export interface AppContext {
@@ -74,7 +78,7 @@ export async function runAgent(threadId: string, userMessage: string): Promise<s
           toolUse.input as Record<string, unknown>,
           actualConfig,
           db,
-          (txId, category, reason, account) => proposeCategoryImpl(txId, category, reason, threadId, discord, db, account)
+          (txId, category, reason, account, payee, amount) => proposeCategoryImpl(txId, category, reason, threadId, discord, db, account, payee, amount)
         );
       } catch (err) {
         result = { error: String(err) };
@@ -109,11 +113,16 @@ async function proposeCategoryImpl(
   threadId: string,
   discord: Client,
   db: Database.Database,
-  account?: string
+  account?: string,
+  payee?: string,
+  amount?: number
 ): Promise<string> {
   const thread = await discord.channels.fetch(threadId) as ThreadChannel;
+  const amountStr = amount != null ? `$${(Math.abs(amount) / 100).toFixed(2)}` : '';
+  const payeeLine = payee ? `\nPayee: **${sanitize(payee)}**` : '';
+  const amountLine = amountStr ? `\nAmount: **${amountStr}**` : '';
   const accountLine = account ? `\nAccount: **${sanitize(account)}**` : '';
-  const content = `**Category Proposal**\nTransaction: \`${sanitize(txId)}\`${accountLine}\nCategory: **${sanitize(category)}**\nReason: ${sanitize(reason)}`;
+  const content = `**Category Proposal**${payeeLine}${amountLine}${accountLine}\nCategory: **${sanitize(category)}**\nReason: ${sanitize(reason)}`;
   const message = await postApprovalMessage(thread, content);
   const proposalId = randomUUID();
   createProposal(db, { id: proposalId, txId, category, reason, threadId, messageId: message.id });
