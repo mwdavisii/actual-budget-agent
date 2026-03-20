@@ -3,6 +3,10 @@ if (typeof globalThis.navigator === 'undefined') {
   (globalThis as any).navigator = { platform: '' };
 }
 
+process.on('unhandledRejection', (err) => {
+  console.error(JSON.stringify({ level: 'error', message: 'Unhandled rejection', err: String(err) }));
+});
+
 import { getDb } from './db/client';
 import { runMigrations } from './db/schema';
 import { archiveExpiredSessions } from './db/sessions';

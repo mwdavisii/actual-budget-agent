@@ -1,5 +1,6 @@
 import * as actualApi from '@actual-app/api';
 import path from 'path';
+import fs from 'fs';
 import { logger } from '../logger';
 
 let initialized = false;
@@ -27,8 +28,10 @@ export async function withActual<T>(
 ): Promise<T> {
   return withLock(async () => {
     if (!initialized) {
+      const syncDir = path.join(dataDir, 'actual-sync');
+      fs.mkdirSync(syncDir, { recursive: true });
       await actualApi.init({
-        dataDir: path.join(dataDir, 'actual-sync'),
+        dataDir: syncDir,
         serverURL: serverUrl,
         password,
       });
