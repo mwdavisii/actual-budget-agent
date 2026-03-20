@@ -57,7 +57,7 @@ export async function runAgent(threadId: string, userMessage: string): Promise<s
   }));
 
   let response = await anthropic.messages.create({
-    model: 'claude-opus-4-6',
+    model: 'claude-sonnet-4-6',
     max_tokens: 4096,
     system: SYSTEM_PROMPT,
     tools: TOOL_DEFINITIONS,
@@ -88,7 +88,7 @@ export async function runAgent(threadId: string, userMessage: string): Promise<s
 
     messages.push({ role: 'user', content: toolResults });
     response = await anthropic.messages.create({
-      model: 'claude-opus-4-6',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       tools: TOOL_DEFINITIONS,

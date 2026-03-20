@@ -20,6 +20,12 @@ export async function handleUncategorized(ctx: WebhookContext): Promise<void> {
 
   if (txs.length === 0) { logger.info('No uncategorized transactions'); return; }
 
+  const MAX_TXS = 50;
+  if (txs.length > MAX_TXS) {
+    logger.warn('Truncating uncategorized transactions', { total: txs.length, limit: MAX_TXS });
+    txs = txs.slice(0, MAX_TXS);
+  }
+
   const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   await runAgentForAlert(
     discord, getAppContext().db, secrets,
