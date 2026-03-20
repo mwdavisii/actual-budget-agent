@@ -9,6 +9,7 @@ export interface Transaction {
   category: string | null;
   notes: string | null;
   account: string;
+  accountName: string;
 }
 
 export interface CategoryStatus {
@@ -28,20 +29,26 @@ export interface ScheduledTransaction {
 }
 
 export async function getUncategorizedTransactions(): Promise<Transaction[]> {
-  const accounts = await actualApi.getAccounts() as Array<{ id: string; closed: boolean }>;
-  const openAccountIds = accounts.filter((a) => !a.closed).map((a) => a.id);
+  const accounts = await actualApi.getAccounts() as Array<{ id: string; closed: boolean; offbudget: boolean }>;
+  const onBudgetIds = accounts.filter((a) => !a.closed && !a.offbudget).map((a) => a.id);
+
+  const accountMap = Object.fromEntries(accounts.map((a) => [a.id, (a as any).name as string]));
 
   const result = await actualApi.runQuery(
     actualApi.q('transactions')
       .filter({
         category: null,
         transfer_id: null,
-        account: { $oneof: openAccountIds },
+        account: { $oneof: onBudgetIds },
       })
-      .options({ splits: 'none' })
+      .options({ splits: 'inline' })
       .select(['id', 'date', 'amount', 'payee', 'notes', 'account'])
   );
-  return (result as { data: Record<string, unknown>[] }).data.map((tx) => sanitizeObject(tx) as unknown as Transaction);
+  return (result as { data: Record<string, unknown>[] }).data.map((tx) => {
+    const sanitized = sanitizeObject(tx) as Record<string, unknown>;
+    sanitized.accountName = accountMap[tx['account'] as string] ?? '';
+    return sanitized as unknown as Transaction;
+  });
 }
 
 export async function getTransactions(filters: {

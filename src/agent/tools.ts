@@ -66,6 +66,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
         txId: { type: 'string', description: 'Transaction ID from Actual Budget' },
         category: { type: 'string', description: 'Category name to assign' },
         reason: { type: 'string', description: 'Why you are proposing this category' },
+        account: { type: 'string', description: 'Account name the transaction belongs to' },
       },
       required: ['txId', 'category', 'reason'],
     },
@@ -77,7 +78,7 @@ export async function executeTool(
   input: Record<string, unknown>,
   actualConfig: ActualConfig,
   db: Database.Database,
-  proposeCategoryFn: (txId: string, category: string, reason: string) => Promise<string>
+  proposeCategoryFn: (txId: string, category: string, reason: string, account?: string) => Promise<string>
 ): Promise<unknown> {
   switch (toolName) {
     case 'getUncategorizedTransactions':
@@ -103,7 +104,8 @@ export async function executeTool(
       return proposeCategoryFn(
         input['txId'] as string,
         input['category'] as string,
-        input['reason'] as string
+        input['reason'] as string,
+        (input['account'] as string) || undefined
       );
 
     default:

@@ -74,7 +74,7 @@ export async function runAgent(threadId: string, userMessage: string): Promise<s
           toolUse.input as Record<string, unknown>,
           actualConfig,
           db,
-          (txId, category, reason) => proposeCategoryImpl(txId, category, reason, threadId, discord, db)
+          (txId, category, reason, account) => proposeCategoryImpl(txId, category, reason, threadId, discord, db, account)
         );
       } catch (err) {
         result = { error: String(err) };
@@ -108,10 +108,12 @@ async function proposeCategoryImpl(
   reason: string,
   threadId: string,
   discord: Client,
-  db: Database.Database
+  db: Database.Database,
+  account?: string
 ): Promise<string> {
   const thread = await discord.channels.fetch(threadId) as ThreadChannel;
-  const content = `**Category Proposal**\nTransaction: \`${sanitize(txId)}\`\nCategory: **${sanitize(category)}**\nReason: ${sanitize(reason)}`;
+  const accountLine = account ? `\nAccount: **${sanitize(account)}**` : '';
+  const content = `**Category Proposal**\nTransaction: \`${sanitize(txId)}\`${accountLine}\nCategory: **${sanitize(category)}**\nReason: ${sanitize(reason)}`;
   const message = await postApprovalMessage(thread, content);
   const proposalId = randomUUID();
   createProposal(db, { id: proposalId, txId, category, reason, threadId, messageId: message.id });
