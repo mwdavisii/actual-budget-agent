@@ -7,6 +7,7 @@ import {
   getScheduledTransactions,
 } from '../actual/queries';
 import { getPendingProposals } from '../db/proposals';
+import { getTargets, setTarget, seedTargets, getUnderfundedCategories } from '../db/targets';
 import type Database from 'better-sqlite3';
 
 export interface ActualConfig {
@@ -73,6 +74,33 @@ export const TOOL_DEFINITIONS: Tool[] = [
       required: ['txId', 'category', 'reason'],
     },
   },
+  {
+    name: 'getBudgetTargets',
+    description: 'Get all stored budget targets with current budgeted amounts and the gap.',
+    input_schema: { type: 'object' as const, properties: {}, required: [] },
+  },
+  {
+    name: 'setBudgetTarget',
+    description: 'Set a budget target amount for a category. Set to 0 to remove.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        categoryName: { type: 'string', description: 'Category name (case-insensitive exact match)' },
+        amount: { type: 'number', description: 'Target amount in cents' },
+      },
+      required: ['categoryName', 'amount'],
+    },
+  },
+  {
+    name: 'seedBudgetTargets',
+    description: 'Seed budget targets from current month budgeted amounts. Overwrites all existing targets. Excludes income categories.',
+    input_schema: { type: 'object' as const, properties: {}, required: [] },
+  },
+  {
+    name: 'getUnderfundedCategories',
+    description: 'Compare current budgeted amounts against stored targets. Returns categories where budgeted &lt; target with the gap.',
+    input_schema: { type: 'object' as const, properties: {}, required: [] },
+  },
 ];
 
 export async function executeTool(
@@ -111,6 +139,41 @@ export async function executeTool(
         (input['payee'] as string) || undefined,
         input['amount'] != null ? Number(input['amount']) : undefined
       );
+
+    case 'getBudgetTargets': {
+      const categories = await withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, getBudgetStatus);
+      const targets = getTargets(db);
+      return targets.map((t) => {
+        const live = categories.find((c) => c.id === t.categoryId);
+        return {
+          categoryName: live?.name ?? t.categoryName,
+          target: t.targetAmount,
+          budgeted: live?.budgeted ?? 0,
+          gap: t.targetAmount - (live?.budgeted ?? 0),
+        };
+      });
+    }
+
+    case 'setBudgetTarget': {
+      const name = input['categoryName'] as string;
+      const amount = Number(input['amount']);
+      const categories = await withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, getBudgetStatus);
+      const match = categories.find((c) => c.name.toLowerCase() === name.toLowerCase());
+      if (!match) return { error: `No category found matching "${name}". Check the exact name in Actual Budget.` };
+      setTarget(db, match.id, match.name, amount);
+      return { success: true, categoryName: match.name, targetAmount: amount };
+    }
+
+    case 'seedBudgetTargets': {
+      const categories = await withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, getBudgetStatus);
+      const count = seedTargets(db, categories);
+      return { success: true, count, month: new Date().toISOString().slice(0, 7) };
+    }
+
+    case 'getUnderfundedCategories': {
+      const categories = await withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, getBudgetStatus);
+      return getUnderfundedCategories(db, categories);
+    }
 
     default:
       throw new Error(`Unknown tool: ${toolName}`);
