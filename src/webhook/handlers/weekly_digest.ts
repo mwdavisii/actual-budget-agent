@@ -35,6 +35,6 @@ export async function handleWeeklyDigest(ctx: WebhookContext): Promise<void> {
   const relevant = budget.filter((c) => emailCategories.includes(c.name));
   const weekSpent = txs.filter((t) => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
   const { subject, body } = buildWeeklyDigest(relevant, weekSpent);
-  await sendEmail(emailTransporter, secrets.email, secrets.wifeEmail, subject, body);
+  await sendEmail(emailTransporter, secrets.email, secrets.additionalEmails, subject, body);
   logger.info('Weekly digest sent');
 }

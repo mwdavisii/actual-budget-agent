@@ -34,7 +34,7 @@ export async function handleOverspent(ctx: WebhookContext): Promise<void> {
     const thresholdCents = overspendThresholdDollars * 100;
     if (emailCategories.includes(cat.name) && Math.abs(cat.available) >= thresholdCents) {
       const { subject, body } = buildOverspendAlert(cat.name, Math.abs(cat.available), cat.available);
-      await sendEmail(emailTransporter, secrets.email, secrets.wifeEmail, subject, body);
+      await sendEmail(emailTransporter, secrets.email, secrets.additionalEmails, subject, body);
     }
   }
 }

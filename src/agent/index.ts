@@ -1,15 +1,15 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { Client, ThreadChannel } from 'discord.js';
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
 import { TOOL_DEFINITIONS, executeTool, ActualConfig } from './tools';
 import { getSession, saveSession } from '../db/sessions';
-import { createProposal, hasActiveProposal } from '../db/proposals';
-import { getOrCreateThread, postToThread, postApprovalMessage } from '../discord/threads';
+import { createProposal, getActiveProposal, updateProposalStatus } from '../db/proposals';
+import { getOrCreateThread, postToThread, postApprovalMessage, editMessage } from '../discord/threads';
 import { sanitize } from '../sanitize';
 import { logger } from '../logger';
 import type { SecretsConfig } from '../config';
 import type nodemailer from 'nodemailer';
+import type { LLMProvider, ChatMessage } from '../llm/types';
 
 const SYSTEM_PROMPT = `You are a budget assistant monitoring an Actual Budget instance for a household.
 
@@ -31,7 +31,7 @@ export interface AppContext {
   secrets: SecretsConfig;
   emailTransporter: nodemailer.Transporter;
   actualConfig: ActualConfig;
-  anthropic: Anthropic;
+  llm: LLMProvider;
 }
 
 let appContext: AppContext;
@@ -46,36 +46,33 @@ export function getAppContext(): AppContext {
 }
 
 export async function runAgent(threadId: string, userMessage: string): Promise<string> {
-  const { db, actualConfig, anthropic, discord } = appContext;
+  const { db, actualConfig, llm, discord } = appContext;
 
   const history = getSession(db, threadId) ?? [];
   history.push({ role: 'user', content: sanitize(userMessage) });
 
-  const messages: Anthropic.MessageParam[] = history.map((m) => ({
+  const messages: ChatMessage[] = history.map((m) => ({
     role: m.role as 'user' | 'assistant',
     content: m.content,
   }));
 
-  let response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
+  let response = await llm.chat({
     system: SYSTEM_PROMPT,
     tools: TOOL_DEFINITIONS,
     messages,
+    maxTokens: 4096,
   });
 
-  while (response.stop_reason === 'tool_use') {
-    const toolUses = response.content.filter((b) => b.type === 'tool_use');
-    messages.push({ role: 'assistant', content: response.content });
+  while (response.finishReason === 'tool_use') {
+    messages.push({ role: 'assistant', content: response.text, toolCalls: response.toolCalls });
 
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
-    for (const toolUse of toolUses) {
-      if (toolUse.type !== 'tool_use') continue;
+    const toolResults = [];
+    for (const toolCall of response.toolCalls) {
       let result: unknown;
       try {
         result = await executeTool(
-          toolUse.name,
-          toolUse.input as Record<string, unknown>,
+          toolCall.name,
+          toolCall.input,
           actualConfig,
           db,
           (txId, category, reason, account, payee, amount) => proposeCategoryImpl(txId, category, reason, threadId, discord, db, account, payee, amount)
@@ -83,24 +80,19 @@ export async function runAgent(threadId: string, userMessage: string): Promise<s
       } catch (err) {
         result = { error: String(err) };
       }
-      toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: JSON.stringify(result) });
+      toolResults.push({ toolCallId: toolCall.id, content: JSON.stringify(result) });
     }
 
-    messages.push({ role: 'user', content: toolResults });
-    response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
+    messages.push({ role: 'user', content: '', toolResults });
+    response = await llm.chat({
       system: SYSTEM_PROMPT,
       tools: TOOL_DEFINITIONS,
       messages,
+      maxTokens: 4096,
     });
   }
 
-  const text = response.content
-    .filter((b) => b.type === 'text')
-    .map((b) => (b as Anthropic.TextBlock).text)
-    .join('\n');
-
+  const text = response.text;
   history.push({ role: 'assistant', content: text });
   saveSession(db, threadId, history);
   return text;
@@ -117,9 +109,11 @@ async function proposeCategoryImpl(
   payee?: string,
   amount?: number
 ): Promise<string> {
-  if (hasActiveProposal(db, txId)) {
-    logger.info('Skipping proposal — active proposal exists', { txId, category });
-    return `Skipped: transaction ${txId} already has a pending proposal.`;
+  const existing = getActiveProposal(db, txId);
+  if (existing) {
+    logger.info('Auto-rejecting previous proposal for new correction', { txId, oldCategory: existing.category, newCategory: category });
+    updateProposalStatus(db, existing.id, 'rejected');
+    await editMessage(discord, existing.threadId, existing.messageId, `~~${existing.category}~~ — auto-rejected (replaced by new proposal)`);
   }
 
   const thread = await discord.channels.fetch(threadId) as ThreadChannel;

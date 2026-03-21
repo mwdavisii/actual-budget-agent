@@ -53,6 +53,18 @@ export function hasActiveProposal(db: Database.Database, txId: string): boolean 
   return row != null;
 }
 
+export function getActiveProposal(db: Database.Database, txId: string): Proposal | null {
+  const now = Math.floor(Date.now() / 1000);
+  const row = db.prepare(
+    "SELECT * FROM pending_proposals WHERE tx_id = ? AND status = 'pending' AND expires_at > ? LIMIT 1"
+  ).get(txId, now) as { id: string; tx_id: string; category: string; reason: string; thread_id: string; message_id: string; status: string; expires_at: number } | undefined;
+  if (!row) return null;
+  return {
+    id: row.id, txId: row.tx_id, category: row.category, reason: row.reason,
+    threadId: row.thread_id, messageId: row.message_id, status: row.status, expiresAt: row.expires_at,
+  };
+}
+
 export function updateProposalStatus(
   db: Database.Database,
   id: string,

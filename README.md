@@ -4,7 +4,7 @@ An AI-powered assistant for [Actual Budget](https://actualbudget.org/) that moni
 
 ## How It Works
 
-Budget Agent connects to your Actual Budget server and responds to scheduled webhook triggers. Each trigger runs a specific check (overspent categories, uncategorized transactions, etc.), and the agent uses Claude Sonnet to analyze the results and post actionable proposals to a Discord channel. Critical alerts are also emailed.
+Budget Agent connects to your Actual Budget server and responds to scheduled webhook triggers. Each trigger runs a specific check (overspent categories, uncategorized transactions, etc.), and the agent uses an LLM (Claude, GPT, or Gemini) to analyze the results and post actionable proposals to a Discord channel. Critical alerts are also emailed.
 
 ### Alert Types
 
@@ -31,14 +31,14 @@ CronJobs (HMAC-signed webhooks)
   Discord Bot        Actual Budget API
         |                   |
         v                   v
-  Claude Agent <---- Budget Data
+  LLM Agent   <---- Budget Data
         |
         v
   Discord Thread + Email Alerts
 ```
 
 - **Webhook server** — Express with HMAC-SHA256 authentication
-- **AI agent** — Claude Sonnet with tools for querying budget data and proposing changes
+- **AI agent** — Configurable LLM (Claude, GPT, or Gemini) with tools for querying budget data and proposing changes
 - **Proposal cards** — Discord messages with Approve/Reject/Skip buttons showing payee, amount, account, and category
 - **Deduplication** — Proposals are cached by transaction ID for a configurable TTL (default 24h), preventing duplicate proposals across webhook runs
 - **Write operations** — The agent now writes budget amounts back to Actual via `setBudgetAmount` (first write operation), enabling pay-period allocation and target adjustments
@@ -81,7 +81,9 @@ npm run dev     # requires .env with secrets
 
 | Variable | Description |
 |----------|-------------|
-| `CLAUDE_API_KEY` | Anthropic API key |
+| `LLM_PROVIDER` | AI provider: `anthropic` (default), `openai`, or `gemini` |
+| `LLM_API_KEY` | API key for the chosen LLM provider |
+| `LLM_MODEL` | Model override (defaults: `claude-sonnet-4-6`, `gpt-4o`, `gemini-2.5-flash`) |
 | `DISCORD_TOKEN` | Discord bot token |
 | `DISCORD_ALLOWED_USER_ID` | Numeric Discord user ID allowed to interact |
 | `DISCORD_BUDGET_CHANNEL_ID` | Channel for budget alerts |
@@ -92,7 +94,7 @@ npm run dev     # requires .env with secrets
 | `SMTP_HOST` | SMTP relay host |
 | `SMTP_PORT` | SMTP relay port |
 | `EMAIL` | Sender email address |
-| `WIFE_EMAIL` | Recipient for alerts/digests |
+| `ADDITIONAL_EMAILS` | Comma-delimited recipient(s) for alerts/digests |
 | `WEBHOOK_HMAC_KEY` | Shared secret for webhook authentication |
 | `DATA_DIR` | Path for SQLite database and Actual sync data |
 | `CONFIGMAP_PATH` | Path to settings.json for hot-reload config |
@@ -111,7 +113,90 @@ The ConfigMap (`/config/settings.json`) supports hot-reload without pod restart:
 
 ## Deployment
 
-Deployed to Kubernetes via [Flux GitOps](https://fluxcd.io/). Container images are built by GitHub Actions on push to `main` and auto-deployed via Flux image automation. See the [hops](https://github.com/mwdavisii/hops) repo for k8s manifests.
+### Docker
+
+Run with Docker using the pre-built image from GHCR:
+
+```bash
+docker run -d \
+  --name budget-agent \
+  -p 3000:3000 \
+  -v budget-agent-data:/data \
+  -v $(pwd)/settings.json:/config/settings.json:ro \
+  -e LLM_API_KEY=sk-ant-... \
+  -e LLM_PROVIDER=anthropic \
+  -e DISCORD_TOKEN=... \
+  -e DISCORD_ALLOWED_USER_ID=... \
+  -e DISCORD_BUDGET_CHANNEL_ID=... \
+  -e DISCORD_ERROR_CHANNEL_ID=... \
+  -e ACTUAL_SERVER_URL=https://actual.example.com \
+  -e ACTUAL_PASSWORD=... \
+  -e ACTUAL_BUDGET_ID=... \
+  -e SMTP_HOST=smtp.example.com \
+  -e SMTP_PORT=587 \
+  -e EMAIL=budget@example.com \
+  -e ADDITIONAL_EMAILS=alice@example.com,bob@example.com \
+  -e WEBHOOK_HMAC_KEY=$(openssl rand -hex 32) \
+  ghcr.io/mwdavisii/actual-budget-agent:latest
+```
+
+Or use an env file:
+
+```bash
+docker run -d \
+  --name budget-agent \
+  -p 3000:3000 \
+  -v budget-agent-data:/data \
+  -v $(pwd)/settings.json:/config/settings.json:ro \
+  --env-file .env \
+  ghcr.io/mwdavisii/actual-budget-agent:latest
+```
+
+Create a `settings.json` for dynamic configuration (see [Dynamic Configuration](#dynamic-configuration) below):
+
+```json
+{
+  "overspendThresholdDollars": 50,
+  "emailCategories": ["Dining Out", "Groceries"],
+  "proposalTtlHours": 24,
+  "payFrequencyDays": 14,
+  "lastPayDate": "2026-03-20"
+}
+```
+
+#### Triggering Webhooks with Cron
+
+The agent responds to HMAC-signed webhook POSTs. Without Kubernetes CronJobs, use the host crontab or a sidecar container. Example crontab entry for bank sync at 6am daily:
+
+```bash
+# Generate the HMAC signature and POST to the webhook
+0 6 * * * BODY='{"checkType":"bank_sync","triggeredAt":"'$(date -u +\%Y-\%m-\%dT\%H:\%M:\%SZ)'"}' && SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_HMAC_KEY" | sed 's/^.* //')" && curl -sf -X POST -H "Content-Type: application/json" -H "X-Webhook-Signature: $SIG" -d "$BODY" http://localhost:3000/webhook
+```
+
+Available `checkType` values: `bank_sync`, `allocate_pay_period`, `seed_targets`, `overspent_categories`, `unfunded_bills`, `monthly_review`, `weekly_digest`.
+
+### Docker Compose
+
+```yaml
+services:
+  budget-agent:
+    image: ghcr.io/mwdavisii/actual-budget-agent:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - budget-data:/data
+      - ./settings.json:/config/settings.json:ro
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  budget-data:
+```
+
+### Kubernetes
+
+Deployed via [Flux GitOps](https://fluxcd.io/). Container images are built by GitHub Actions on push to `main` and auto-deployed via Flux image automation. See the [hops](https://github.com/mwdavisii/hops) repo for k8s manifests.
 
 ## License
 
