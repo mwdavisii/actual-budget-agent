@@ -37,10 +37,10 @@ async function main() {
   setProposalTtl(proposalTtlHours * 60 * 60);
 
   const discord = createDiscordClient();
-  const emailTransporter = createEmailClient({
-    host: secrets.smtpHost,
-    port: secrets.smtpPort,
-  });
+  const emailTransporter = secrets.enableEmail
+    ? createEmailClient({ host: secrets.smtpHost, port: secrets.smtpPort })
+    : null!;
+  if (!secrets.enableEmail) logger.info('Email disabled (ENABLE_EMAIL is not set to true)');
   const llm = createLLMProvider(secrets.llmProvider as LLMProviderName, secrets.llmApiKey, secrets.llmModel);
   logger.info('LLM provider initialized', { provider: secrets.llmProvider, model: secrets.llmModel ?? 'default' });
 

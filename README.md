@@ -68,6 +68,38 @@ In addition to scheduled webhooks, the agent exposes conversational tools for Di
 | `getUnderfundedCategories` | List categories where current budget is below target |
 | `allocatePayPeriodBudget` | Allocate budget from targets for the current pay period |
 
+## Prerequisites
+
+### Discord Bot
+
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and click **New Application**
+2. Under **Bot**, click **Reset Token** and save the token — this is your `DISCORD_TOKEN`
+3. Enable these **Privileged Gateway Intents**: Message Content, Server Members (optional)
+4. Under **OAuth2 > URL Generator**, select scopes `bot` and permissions: Send Messages, Send Messages in Threads, Create Public Threads, Manage Messages, Read Message History, Use External Emojis
+5. Open the generated URL to invite the bot to your server
+6. In Discord, enable Developer Mode (User Settings > Advanced), then right-click to copy IDs:
+   - Your user ID → `DISCORD_ALLOWED_USER_ID`
+   - Budget alerts channel → `DISCORD_BUDGET_CHANNEL_ID`
+   - Error notifications channel → `DISCORD_ERROR_CHANNEL_ID`
+
+### Actual Budget
+
+You need a running [Actual Budget](https://actualbudget.org/) server (self-hosted). From the app:
+
+1. Go to **Settings > Advanced** and copy the **Sync ID** — this is your `ACTUAL_BUDGET_ID`
+2. Your server URL (e.g. `https://actual.example.com`) → `ACTUAL_SERVER_URL`
+3. Your server password → `ACTUAL_PASSWORD`
+
+For bank sync to work, connect your accounts to [SimpleFIN](https://simplefin.org/) through Actual's linked accounts feature.
+
+### LLM API Key
+
+Get an API key from your chosen provider:
+
+- **Anthropic** (default): [console.anthropic.com](https://console.anthropic.com/) → `LLM_API_KEY`
+- **OpenAI**: [platform.openai.com](https://platform.openai.com/) → set `LLM_PROVIDER=openai`
+- **Google Gemini**: [aistudio.google.com](https://aistudio.google.com/) → set `LLM_PROVIDER=gemini`
+
 ## Development
 
 ```bash
@@ -79,11 +111,11 @@ npm run dev     # requires .env with secrets
 
 ## Environment Variables
 
+### Required
+
 | Variable | Description |
 |----------|-------------|
-| `LLM_PROVIDER` | AI provider: `anthropic` (default), `openai`, or `gemini` |
 | `LLM_API_KEY` | API key for the chosen LLM provider |
-| `LLM_MODEL` | Model override (defaults: `claude-sonnet-4-6`, `gpt-4o`, `gemini-2.5-flash`) |
 | `DISCORD_TOKEN` | Discord bot token |
 | `DISCORD_ALLOWED_USER_ID` | Numeric Discord user ID allowed to interact |
 | `DISCORD_BUDGET_CHANNEL_ID` | Channel for budget alerts |
@@ -91,13 +123,21 @@ npm run dev     # requires .env with secrets
 | `ACTUAL_SERVER_URL` | Actual Budget server URL |
 | `ACTUAL_PASSWORD` | Actual Budget password |
 | `ACTUAL_BUDGET_ID` | Budget sync ID (Settings > Advanced > Sync ID) |
-| `SMTP_HOST` | SMTP relay host |
-| `SMTP_PORT` | SMTP relay port |
-| `EMAIL` | Sender email address |
-| `ADDITIONAL_EMAILS` | Comma-delimited recipient(s) for alerts/digests |
 | `WEBHOOK_HMAC_KEY` | Shared secret for webhook authentication |
-| `DATA_DIR` | Path for SQLite database and Actual sync data |
-| `CONFIGMAP_PATH` | Path to settings.json for hot-reload config |
+
+### Optional
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_PROVIDER` | `anthropic` | AI provider: `anthropic`, `openai`, or `gemini` |
+| `LLM_MODEL` | per-provider | Model override (defaults: `claude-sonnet-4-6`, `gpt-4o`, `gemini-2.5-flash`) |
+| `ENABLE_EMAIL` | `false` | Set to `true` to enable email alerts (requires SMTP vars below) |
+| `SMTP_HOST` | | SMTP relay host (required if email enabled) |
+| `SMTP_PORT` | | SMTP relay port (required if email enabled) |
+| `EMAIL` | | Sender email address (required if email enabled) |
+| `ADDITIONAL_EMAILS` | | Comma-delimited recipient(s) for alerts/digests (required if email enabled) |
+| `DATA_DIR` | `/data` | Path for SQLite database and Actual sync data |
+| `CONFIGMAP_PATH` | | Path to settings.json for hot-reload config (Kubernetes) |
 
 ## Budget Configuration
 
@@ -125,7 +165,6 @@ docker run -d \
   -p 3000:3000 \
   -v budget-agent-data:/data \
   -e LLM_API_KEY=sk-ant-... \
-  -e LLM_PROVIDER=anthropic \
   -e DISCORD_TOKEN=... \
   -e DISCORD_ALLOWED_USER_ID=... \
   -e DISCORD_BUDGET_CHANNEL_ID=... \
@@ -133,15 +172,18 @@ docker run -d \
   -e ACTUAL_SERVER_URL=https://actual.example.com \
   -e ACTUAL_PASSWORD=... \
   -e ACTUAL_BUDGET_ID=... \
+  -e WEBHOOK_HMAC_KEY=$(openssl rand -hex 32) \
+  ghcr.io/mwdavisii/actual-budget-agent:latest
+```
+
+To enable email alerts, add:
+
+```bash
+  -e ENABLE_EMAIL=true \
   -e SMTP_HOST=smtp.example.com \
   -e SMTP_PORT=587 \
   -e EMAIL=budget@example.com \
   -e ADDITIONAL_EMAILS=alice@example.com,bob@example.com \
-  -e WEBHOOK_HMAC_KEY=$(openssl rand -hex 32) \
-  -e PAY_FREQUENCY_DAYS=14 \
-  -e LAST_PAY_DATE=2025-01-03 \
-  -e EMAIL_CATEGORIES="Dining Out,Groceries" \
-  ghcr.io/mwdavisii/actual-budget-agent:latest
 ```
 
 Or use an env file:

@@ -6,6 +6,7 @@ export interface SecretsConfig {
   llmApiKey: string;
   llmModel?: string;
   discordToken: string;
+  enableEmail: boolean;
   smtpHost: string;
   smtpPort: number;
   email: string;
@@ -48,15 +49,17 @@ function envDefaults(): DynamicConfig {
 }
 
 export function getSecrets(): SecretsConfig {
+  const enableEmail = (process.env['ENABLE_EMAIL'] ?? 'false').toLowerCase() === 'true';
   return {
     llmProvider: process.env['LLM_PROVIDER'] ?? 'anthropic',
     llmApiKey: requireEnv('LLM_API_KEY'),
     llmModel: process.env['LLM_MODEL'] || undefined,
     discordToken: requireEnv('DISCORD_TOKEN'),
-    smtpHost: requireEnv('SMTP_HOST'),
-    smtpPort: parseInt(requireEnv('SMTP_PORT'), 10),
-    email: requireEnv('EMAIL'),
-    additionalEmails: requireEnv('ADDITIONAL_EMAILS'),
+    enableEmail,
+    smtpHost: enableEmail ? requireEnv('SMTP_HOST') : (process.env['SMTP_HOST'] ?? ''),
+    smtpPort: enableEmail ? parseInt(requireEnv('SMTP_PORT'), 10) : 587,
+    email: enableEmail ? requireEnv('EMAIL') : (process.env['EMAIL'] ?? ''),
+    additionalEmails: enableEmail ? requireEnv('ADDITIONAL_EMAILS') : (process.env['ADDITIONAL_EMAILS'] ?? ''),
     webhookHmacKey: requireEnv('WEBHOOK_HMAC_KEY'),
     discordAllowedUserId: requireEnv('DISCORD_ALLOWED_USER_ID'),
     discordBudgetChannelId: requireEnv('DISCORD_BUDGET_CHANNEL_ID'),
