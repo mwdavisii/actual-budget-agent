@@ -101,6 +101,17 @@ export const TOOL_DEFINITIONS: Tool[] = [
     description: 'Compare current budgeted amounts against stored targets. Returns categories where budgeted &lt; target with the gap.',
     input_schema: { type: 'object' as const, properties: {}, required: [] },
   },
+  {
+    name: 'allocatePayPeriodBudget',
+    description: 'Allocate budget amounts for the current pay period. Fixed bills due before next payday get full target. Discretionary gets half on 1st paycheck, full on 2nd. 3rd paycheck skipped.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        forceDate: { type: 'string', description: 'Optional ISO date to treat as payday (bypasses payday check). For testing.' },
+      },
+      required: [],
+    },
+  },
 ];
 
 export async function executeTool(
@@ -173,6 +184,20 @@ export async function executeTool(
     case 'getUnderfundedCategories': {
       const categories = await withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, getBudgetStatus);
       return getUnderfundedCategories(db, categories);
+    }
+
+    case 'allocatePayPeriodBudget': {
+      const { handleAllocatePayPeriod } = await import('../webhook/handlers/allocate_budget');
+      const forceDate = input['forceDate'] as string | undefined;
+      const ctx: import('../webhook/server').WebhookContext = {
+        hmacKey: '',
+        dataDir: actualConfig.dataDir,
+        budgetId: actualConfig.budgetId,
+        actualServerUrl: actualConfig.serverUrl,
+        actualPassword: actualConfig.password,
+      };
+      await handleAllocatePayPeriod(ctx, forceDate);
+      return { success: true, message: 'Pay-period allocation completed. Check the Discord thread for details.' };
     }
 
     default:
