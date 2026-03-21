@@ -4,8 +4,8 @@ import type Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
 import { TOOL_DEFINITIONS, executeTool, ActualConfig } from './tools';
 import { getSession, saveSession } from '../db/sessions';
-import { createProposal, hasActiveProposal } from '../db/proposals';
-import { getOrCreateThread, postToThread, postApprovalMessage } from '../discord/threads';
+import { createProposal, getActiveProposal, updateProposalStatus } from '../db/proposals';
+import { getOrCreateThread, postToThread, postApprovalMessage, editMessage } from '../discord/threads';
 import { sanitize } from '../sanitize';
 import { logger } from '../logger';
 import type { SecretsConfig } from '../config';
@@ -117,9 +117,11 @@ async function proposeCategoryImpl(
   payee?: string,
   amount?: number
 ): Promise<string> {
-  if (hasActiveProposal(db, txId)) {
-    logger.info('Skipping proposal — active proposal exists', { txId, category });
-    return `Skipped: transaction ${txId} already has a pending proposal.`;
+  const existing = getActiveProposal(db, txId);
+  if (existing) {
+    logger.info('Auto-rejecting previous proposal for new correction', { txId, oldCategory: existing.category, newCategory: category });
+    updateProposalStatus(db, existing.id, 'rejected');
+    await editMessage(discord, existing.threadId, existing.messageId, `~~${existing.category}~~ — auto-rejected (replaced by new proposal)`);
   }
 
   const thread = await discord.channels.fetch(threadId) as ThreadChannel;
