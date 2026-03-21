@@ -7,7 +7,7 @@ import {
   getScheduledTransactions,
 } from '../actual/queries';
 import { getPendingProposals } from '../db/proposals';
-import { getTargets, setTarget, seedTargets, getUnderfundedCategories } from '../db/targets';
+import { getTargets, setTarget, seedTargets, getUnderfundedCategories, exportTargets, importTargets, type TargetExport } from '../db/targets';
 import type Database from 'better-sqlite3';
 
 export interface ActualConfig {
@@ -112,6 +112,34 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: [],
     },
   },
+  {
+    name: 'exportBudgetTargets',
+    description: 'Export all budget targets as JSON. Returns the full target set for backup or sharing.',
+    parameters: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'importBudgetTargets',
+    description: 'Import budget targets from a JSON payload. Upserts each target — existing categories are updated, new ones are added.',
+    parameters: {
+      type: 'object',
+      properties: {
+        targets: {
+          type: 'array',
+          description: 'Array of target objects with categoryId, categoryName, and targetAmount (in cents)',
+          items: {
+            type: 'object',
+            properties: {
+              categoryId: { type: 'string' },
+              categoryName: { type: 'string' },
+              targetAmount: { type: 'number' },
+            },
+            required: ['categoryId', 'categoryName', 'targetAmount'],
+          },
+        },
+      },
+      required: ['targets'],
+    },
+  },
 ];
 
 export async function executeTool(
@@ -198,6 +226,15 @@ export async function executeTool(
       };
       await handleAllocatePayPeriod(ctx, forceDate);
       return { success: true, message: 'Pay-period allocation completed. Check the Discord thread for details.' };
+    }
+
+    case 'exportBudgetTargets':
+      return exportTargets(db);
+
+    case 'importBudgetTargets': {
+      const targets = input['targets'] as TargetExport['targets'];
+      const count = importTargets(db, { exportedAt: new Date().toISOString(), targets });
+      return { success: true, imported: count };
     }
 
     default:

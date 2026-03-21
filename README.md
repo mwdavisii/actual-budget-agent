@@ -55,6 +55,7 @@ Budget targets provide a monthly allocation baseline the agent can reason about 
 - **"What's underfunded?"** — agent compares targets to current budgets and surfaces gaps
 - **Pay-period allocation** — on paydays, the agent sets budget amounts from targets: fixed bills get their full target when due, discretionary categories are split across two paychecks
 - **3rd paycheck months** — the 3rd paycheck is intentionally left unallocated for manual use (e.g., emergency fund, irregular expenses)
+- **Backup/export** — targets are automatically backed up as a JSON attachment in Discord after each monthly seed. You can also export/import via HTTP endpoints or conversational agent tools.
 
 ## Agent Tools
 
@@ -67,6 +68,8 @@ In addition to scheduled webhooks, the agent exposes conversational tools for Di
 | `seedBudgetTargets` | Snapshot current budgeted amounts as the new target baseline |
 | `getUnderfundedCategories` | List categories where current budget is below target |
 | `allocatePayPeriodBudget` | Allocate budget from targets for the current pay period |
+| `exportBudgetTargets` | Export all targets as JSON for backup or sharing |
+| `importBudgetTargets` | Import targets from a JSON payload (upserts) |
 
 ## Prerequisites
 
@@ -207,6 +210,21 @@ The agent responds to HMAC-signed webhook POSTs. Without Kubernetes CronJobs, us
 ```
 
 Available `checkType` values: `bank_sync`, `allocate_pay_period`, `seed_targets`, `overspent_categories`, `unfunded_bills`, `monthly_review`, `weekly_digest`.
+
+#### Exporting & Importing Budget Targets
+
+Budget targets are automatically backed up to Discord as a JSON attachment after each monthly seed. You can also export/import via HMAC-authenticated HTTP endpoints:
+
+```bash
+# Export targets
+SIG="sha256=$(printf '' | openssl dgst -sha256 -hmac "$WEBHOOK_HMAC_KEY" | sed 's/^.* //')"
+curl -sf -H "X-Webhook-Signature: $SIG" http://localhost:3000/export/targets > targets-backup.json
+
+# Import targets
+BODY=$(cat targets-backup.json)
+SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_HMAC_KEY" | sed 's/^.* //')"
+curl -sf -X POST -H "Content-Type: application/json" -H "X-Webhook-Signature: $SIG" -d "$BODY" http://localhost:3000/import/targets
+```
 
 ### Docker Compose
 
