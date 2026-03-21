@@ -21,6 +21,11 @@ export async function handleOverspent(ctx: WebhookContext): Promise<void> {
   }
 
   const overspent = categories.filter((c) => c.available < 0);
+  logger.info('Overspent check results', {
+    totalCategories: categories.length,
+    overspentCount: overspent.length,
+    sample: categories.slice(0, 5).map((c) => ({ name: c.name, available: c.available })),
+  });
   if (overspent.length === 0) return;
 
   const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
