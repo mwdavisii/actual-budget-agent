@@ -106,3 +106,47 @@ export function getUnderfundedCategories(
 
   return result.sort((a, b) => b.gap - a.gap);
 }
+
+export interface TargetExport {
+  exportedAt: string;
+  targets: Array<{
+    categoryId: string;
+    categoryName: string;
+    targetAmount: number;
+  }>;
+}
+
+export function exportTargets(db: Database.Database): TargetExport {
+  const targets = getTargets(db);
+  return {
+    exportedAt: new Date().toISOString(),
+    targets: targets.map((t) => ({
+      categoryId: t.categoryId,
+      categoryName: t.categoryName,
+      targetAmount: t.targetAmount,
+    })),
+  };
+}
+
+export function importTargets(db: Database.Database, data: TargetExport): number {
+  const now = Math.floor(Date.now() / 1000);
+  const upsert = db.prepare(`
+    INSERT INTO budget_targets (category_id, category_name, target_amount, updated_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(category_id) DO UPDATE SET
+      category_name = excluded.category_name,
+      target_amount = excluded.target_amount,
+      updated_at = excluded.updated_at
+  `);
+
+  let count = 0;
+  const run = db.transaction(() => {
+    for (const t of data.targets) {
+      if (t.targetAmount <= 0) continue;
+      upsert.run(t.categoryId, t.categoryName, t.targetAmount, now);
+      count++;
+    }
+  });
+  run();
+  return count;
+}
