@@ -190,4 +190,4 @@ Deployed via [Flux GitOps](https://fluxcd.io/). Container images are built by Gi
 
 ## License
 
-MIT
+ISC
