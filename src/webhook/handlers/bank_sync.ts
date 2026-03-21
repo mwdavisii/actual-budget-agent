@@ -3,6 +3,7 @@ import { withActual } from '../../actual/client';
 import { syncAllAccounts } from '../../actual/queries';
 import { handleUncategorized } from './uncategorized';
 import { getAppContext } from '../../agent/index';
+import { getOrCreateThread, postToThread } from '../../discord/threads';
 import { logger } from '../../logger';
 
 export async function handleBankSync(ctx: WebhookContext): Promise<void> {
@@ -19,6 +20,12 @@ export async function handleBankSync(ctx: WebhookContext): Promise<void> {
   }
 
   logger.info('Bank sync complete', { synced: result.synced.length, failed: result.failed.length });
+
+  const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const thread = await getOrCreateThread(discord, secrets.discordBudgetChannelId, `Bank sync — ${date}`);
+  await postToThread(discord, thread.id,
+    `Bank sync complete: ${result.synced.length} synced${result.failed.length > 0 ? `, ${result.failed.length} failed` : ''}.`
+  );
 
   if (result.failed.length > 0) {
     const errChannel = await discord.channels.fetch(secrets.discordErrorChannelId).catch(() => null) as any;

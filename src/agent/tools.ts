@@ -98,7 +98,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
   },
   {
     name: 'getUnderfundedCategories',
-    description: 'Compare current budgeted amounts against stored targets. Returns categories where budgeted &lt; target with the gap.',
+    description: 'Compare current budgeted amounts against stored targets. Returns categories where budgeted is less than target with the gap.',
     input_schema: { type: 'object' as const, properties: {}, required: [] },
   },
   {
