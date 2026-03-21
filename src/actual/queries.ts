@@ -119,3 +119,7 @@ export async function syncAllAccounts(): Promise<{
 
   return { synced, failed };
 }
+
+export async function allocateBudget(month: string, categoryId: string, amount: number): Promise<void> {
+  await actualApi.setBudgetAmount(month, categoryId, amount);
+}
