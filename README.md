@@ -17,7 +17,7 @@ Budget Agent connects to your Actual Budget server and responds to scheduled web
 | **Seed Targets** | 1st of month 7am | Captures current budgeted amounts as target baseline |
 | **Pay-Period Allocation** | Daily 6:30am | On paydays, allocates budget from targets (fixed bills + discretionary split) |
 | **Monthly Review** | 1st of month | End-of-month budget summary |
-| **Weekly Digest** | Monday 7am | Weekly spending summary email |
+| **Weekly Digest** | Monday 7am | Weekly spending summary (Discord + email if enabled) |
 
 ### Architecture
 
@@ -45,6 +45,27 @@ CronJobs (HMAC-signed webhooks)
 - **Discord** — Alerts posted to threads in a designated channel
 - **Email** — Overspend alerts and weekly digests via SMTP relay
 - **Storage** — SQLite for conversation sessions and budget change proposals
+
+### LLM Usage
+
+The agent uses a configurable LLM (Claude, GPT, or Gemini) in specific places — not every webhook handler calls the model. Here's exactly where the LLM is involved:
+
+**LLM-powered (via `runAgentForAlert`):**
+- **Uncategorized transactions** — the LLM analyzes each transaction and proposes a budget category, posted as a Discord approval card
+- **Unfunded bills** — the LLM summarizes which scheduled bills lack budget and suggests actions
+- **Monthly review** — the LLM generates an end-of-month spending summary with insights
+
+**Direct posting (no LLM):**
+- **Overspent categories** — posts a formatted summary directly to Discord (the LLM is not called)
+- **Seed targets** — snapshots budgeted amounts to SQLite and posts confirmation + JSON backup
+- **Pay-period allocation** — deterministic math (target amounts × pay schedule), posts results directly
+- **Weekly digest** — templated summary posted to Discord; also emailed if `ENABLE_EMAIL=true`
+- **Bank sync** — calls the Actual Budget sync API, then triggers the uncategorized handler
+
+**Interactive Discord chat:**
+- Any message from the allowed user in the budget channel or a thread triggers the LLM agent with full tool access. If the thread was created by a direct-posting handler (like overspent), the agent fetches the thread's message history for context on first reply.
+
+**Cost implications:** With default schedules, the LLM is called ~1-2 times daily (uncategorized after bank sync, plus unfunded) and once monthly (review). Interactive Discord chat is on-demand. All other handlers run without LLM calls.
 
 ## Budget Targets
 
