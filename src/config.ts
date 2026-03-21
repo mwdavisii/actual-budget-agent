@@ -22,6 +22,8 @@ export interface DynamicConfig {
   overspendThresholdDollars: number;
   emailCategories: string[];
   proposalTtlHours: number;
+  payFrequencyDays: number;
+  lastPayDate: string;
 }
 
 const CONFIGMAP_PATH = process.env.CONFIGMAP_PATH ?? '/config/settings.json';
@@ -60,6 +62,8 @@ export function getDynamicConfig(): DynamicConfig {
       overspendThresholdDollars: parsed.overspendThresholdDollars ?? 50,
       emailCategories: parsed.emailCategories ?? ["Natalie's Spending", 'Dining Out', 'Groceries'],
       proposalTtlHours: parsed.proposalTtlHours ?? 24,
+      payFrequencyDays: parsed.payFrequencyDays ?? 14,
+      lastPayDate: parsed.lastPayDate ?? '2026-03-20',
     };
   } catch (err) {
     logger.warn('Failed to read ConfigMap — using defaults', { err: String(err) });
@@ -67,6 +71,8 @@ export function getDynamicConfig(): DynamicConfig {
       overspendThresholdDollars: 50,
       emailCategories: ["Natalie's Spending", 'Dining Out', 'Groceries'],
       proposalTtlHours: 24,
+      payFrequencyDays: 14,
+      lastPayDate: '2026-03-20',
     };
   }
 }
