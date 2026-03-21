@@ -23,6 +23,21 @@ export async function dispatchCheckType(payload: WebhookPayload, ctx: WebhookCon
       const { handleWeeklyDigest } = await import('./weekly_digest');
       return handleWeeklyDigest(ctx);
     }
+    case 'bank_sync': {
+      const { handleBankSync } = await import('./bank_sync');
+      await handleBankSync(ctx);
+      break;
+    }
+    case 'seed_targets': {
+      const { handleSeedTargets } = await import('./seed_targets');
+      await handleSeedTargets(ctx);
+      break;
+    }
+    case 'allocate_pay_period': {
+      const { handleAllocatePayPeriod } = await import('./allocate_budget');
+      await handleAllocatePayPeriod(ctx);
+      break;
+    }
     default:
       logger.warn('Unknown checkType', { checkType: (payload as { checkType: string }).checkType });
   }
