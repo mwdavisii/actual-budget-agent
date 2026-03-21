@@ -7,7 +7,7 @@ export interface SecretsConfig {
   smtpHost: string;
   smtpPort: number;
   email: string;
-  wifeEmail: string;
+  additionalEmails: string;
   webhookHmacKey: string;
   discordAllowedUserId: string;
   discordBudgetChannelId: string;
@@ -41,7 +41,7 @@ export function getSecrets(): SecretsConfig {
     smtpHost: requireEnv('SMTP_HOST'),
     smtpPort: parseInt(requireEnv('SMTP_PORT'), 10),
     email: requireEnv('EMAIL'),
-    wifeEmail: requireEnv('WIFE_EMAIL'),
+    additionalEmails: requireEnv('ADDITIONAL_EMAILS'),
     webhookHmacKey: requireEnv('WEBHOOK_HMAC_KEY'),
     discordAllowedUserId: requireEnv('DISCORD_ALLOWED_USER_ID'),
     discordBudgetChannelId: requireEnv('DISCORD_BUDGET_CHANNEL_ID'),

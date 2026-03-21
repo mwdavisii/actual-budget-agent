@@ -92,7 +92,7 @@ npm run dev     # requires .env with secrets
 | `SMTP_HOST` | SMTP relay host |
 | `SMTP_PORT` | SMTP relay port |
 | `EMAIL` | Sender email address |
-| `WIFE_EMAIL` | Recipient for alerts/digests |
+| `ADDITIONAL_EMAILS` | Comma-delimited recipient(s) for alerts/digests |
 | `WEBHOOK_HMAC_KEY` | Shared secret for webhook authentication |
 | `DATA_DIR` | Path for SQLite database and Actual sync data |
 | `CONFIGMAP_PATH` | Path to settings.json for hot-reload config |
