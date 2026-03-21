@@ -28,12 +28,23 @@ export interface DynamicConfig {
   lastPayDate: string;
 }
 
-const CONFIGMAP_PATH = process.env.CONFIGMAP_PATH ?? '/config/settings.json';
+const CONFIGMAP_PATH = process.env['CONFIGMAP_PATH'];
 
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
   return value;
+}
+
+function envDefaults(): DynamicConfig {
+  const categories = process.env['EMAIL_CATEGORIES'];
+  return {
+    overspendThresholdDollars: parseInt(process.env['OVERSPEND_THRESHOLD_DOLLARS'] ?? '50', 10),
+    emailCategories: categories ? categories.split(',').map((s) => s.trim()) : ['Dining Out', 'Groceries'],
+    proposalTtlHours: parseInt(process.env['PROPOSAL_TTL_HOURS'] ?? '24', 10),
+    payFrequencyDays: parseInt(process.env['PAY_FREQUENCY_DAYS'] ?? '14', 10),
+    lastPayDate: process.env['LAST_PAY_DATE'] ?? '2025-01-03',
+  };
 }
 
 export function getSecrets(): SecretsConfig {
@@ -57,26 +68,27 @@ export function getSecrets(): SecretsConfig {
   };
 }
 
-/** Re-reads the ConfigMap file on each call — supports hot-reload without pod restart. */
+/**
+ * Reads config from env vars, with optional settings.json file override.
+ * If CONFIGMAP_PATH is set and the file exists, file values take precedence.
+ * Re-reads the file on each call to support hot-reload.
+ */
 export function getDynamicConfig(): DynamicConfig {
+  const defaults = envDefaults();
+  if (!CONFIGMAP_PATH) return defaults;
+
   try {
     const raw = fs.readFileSync(CONFIGMAP_PATH, 'utf-8');
-    const parsed = JSON.parse(raw) as DynamicConfig;
+    const parsed = JSON.parse(raw) as Partial<DynamicConfig>;
     return {
-      overspendThresholdDollars: parsed.overspendThresholdDollars ?? 50,
-      emailCategories: parsed.emailCategories ?? ["Natalie's Spending", 'Dining Out', 'Groceries'],
-      proposalTtlHours: parsed.proposalTtlHours ?? 24,
-      payFrequencyDays: parsed.payFrequencyDays ?? 14,
-      lastPayDate: parsed.lastPayDate ?? '2026-03-20',
+      overspendThresholdDollars: parsed.overspendThresholdDollars ?? defaults.overspendThresholdDollars,
+      emailCategories: parsed.emailCategories ?? defaults.emailCategories,
+      proposalTtlHours: parsed.proposalTtlHours ?? defaults.proposalTtlHours,
+      payFrequencyDays: parsed.payFrequencyDays ?? defaults.payFrequencyDays,
+      lastPayDate: parsed.lastPayDate ?? defaults.lastPayDate,
     };
   } catch (err) {
-    logger.warn('Failed to read ConfigMap — using defaults', { err: String(err) });
-    return {
-      overspendThresholdDollars: 50,
-      emailCategories: ["Natalie's Spending", 'Dining Out', 'Groceries'],
-      proposalTtlHours: 24,
-      payFrequencyDays: 14,
-      lastPayDate: '2026-03-20',
-    };
+    logger.warn('Failed to read config file — using env/defaults', { path: CONFIGMAP_PATH, err: String(err) });
+    return defaults;
   }
 }

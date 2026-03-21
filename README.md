@@ -99,17 +99,19 @@ npm run dev     # requires .env with secrets
 | `DATA_DIR` | Path for SQLite database and Actual sync data |
 | `CONFIGMAP_PATH` | Path to settings.json for hot-reload config |
 
-## Dynamic Configuration
+## Budget Configuration
 
-The ConfigMap (`/config/settings.json`) supports hot-reload without pod restart:
+These env vars control agent behavior. All are optional with sensible defaults.
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `overspendThresholdDollars` | 50 | Minimum overspend amount to trigger email alerts |
-| `emailCategories` | `["Natalie's Spending", "Dining Out", "Groceries"]` | Categories that trigger email alerts when overspent |
-| `proposalTtlHours` | 24 | Hours before a pending proposal expires and can be re-proposed |
-| `payFrequencyDays` | 14 | Days between paychecks (default: biweekly) |
-| `lastPayDate` | 2026-03-20 | Known payday anchor date for computing pay schedule |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OVERSPEND_THRESHOLD_DOLLARS` | `50` | Minimum overspend amount (dollars) to trigger email alerts |
+| `EMAIL_CATEGORIES` | `Dining Out,Groceries` | Comma-delimited budget category names that trigger email alerts when overspent |
+| `PROPOSAL_TTL_HOURS` | `24` | Hours before a pending proposal expires and can be re-proposed |
+| `PAY_FREQUENCY_DAYS` | `14` | Days between paychecks (e.g. 14 for biweekly, 7 for weekly) |
+| `LAST_PAY_DATE` | `2025-01-03` | A known past payday (any Friday works). Used as an anchor to compute your pay schedule — the agent counts forward by `PAY_FREQUENCY_DAYS` to determine future paydays. |
+
+**Optional file override:** If `CONFIGMAP_PATH` is set to a JSON file path, values in that file take precedence over env vars. This supports hot-reload for Kubernetes ConfigMaps without pod restart.
 
 ## Deployment
 
@@ -122,7 +124,6 @@ docker run -d \
   --name budget-agent \
   -p 3000:3000 \
   -v budget-agent-data:/data \
-  -v $(pwd)/settings.json:/config/settings.json:ro \
   -e LLM_API_KEY=sk-ant-... \
   -e LLM_PROVIDER=anthropic \
   -e DISCORD_TOKEN=... \
@@ -137,6 +138,9 @@ docker run -d \
   -e EMAIL=budget@example.com \
   -e ADDITIONAL_EMAILS=alice@example.com,bob@example.com \
   -e WEBHOOK_HMAC_KEY=$(openssl rand -hex 32) \
+  -e PAY_FREQUENCY_DAYS=14 \
+  -e LAST_PAY_DATE=2025-01-03 \
+  -e EMAIL_CATEGORIES="Dining Out,Groceries" \
   ghcr.io/mwdavisii/actual-budget-agent:latest
 ```
 
@@ -147,21 +151,8 @@ docker run -d \
   --name budget-agent \
   -p 3000:3000 \
   -v budget-agent-data:/data \
-  -v $(pwd)/settings.json:/config/settings.json:ro \
   --env-file .env \
   ghcr.io/mwdavisii/actual-budget-agent:latest
-```
-
-Create a `settings.json` for dynamic configuration (see [Dynamic Configuration](#dynamic-configuration) below):
-
-```json
-{
-  "overspendThresholdDollars": 50,
-  "emailCategories": ["Dining Out", "Groceries"],
-  "proposalTtlHours": 24,
-  "payFrequencyDays": 14,
-  "lastPayDate": "2026-03-20"
-}
 ```
 
 #### Triggering Webhooks with Cron
@@ -185,7 +176,6 @@ services:
       - "3000:3000"
     volumes:
       - budget-data:/data
-      - ./settings.json:/config/settings.json:ro
     env_file:
       - .env
     restart: unless-stopped

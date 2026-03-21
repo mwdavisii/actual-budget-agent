@@ -5,5 +5,8 @@ docs/
 *.db-shm
 *.db-wal
 .env
+.env.*
 k8s/secret.yaml
 .worktrees/
+*.log
+.DS_Store
