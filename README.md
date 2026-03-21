@@ -10,9 +10,12 @@ Budget Agent connects to your Actual Budget server and responds to scheduled web
 
 | Trigger | Schedule | Description |
 |---------|----------|-------------|
-| **Uncategorized** | Every 6 hours | Transactions missing a category — agent proposes categories via Discord approval cards |
+| **Bank Sync** | Daily 6am | Syncs all on-budget accounts via SimpleFIN, then runs uncategorized categorization |
+| **Uncategorized** | Runs as part of bank sync | Transactions missing a category — agent proposes categories via Discord approval cards |
 | **Overspent** | Daily 8am | Categories where spending exceeds the budget |
 | **Unfunded** | Daily 8am | Scheduled bills with no budget allocated |
+| **Seed Targets** | 1st of month 7am | Captures current budgeted amounts as target baseline |
+| **Pay-Period Allocation** | Daily 6:30am | On paydays, allocates budget from targets (fixed bills + discretionary split) |
 | **Monthly Review** | 1st of month | End-of-month budget summary |
 | **Weekly Digest** | Monday 7am | Weekly spending summary email |
 
@@ -38,9 +41,32 @@ CronJobs (HMAC-signed webhooks)
 - **AI agent** — Claude Sonnet with tools for querying budget data and proposing changes
 - **Proposal cards** — Discord messages with Approve/Reject/Skip buttons showing payee, amount, account, and category
 - **Deduplication** — Proposals are cached by transaction ID for a configurable TTL (default 24h), preventing duplicate proposals across webhook runs
+- **Write operations** — The agent now writes budget amounts back to Actual via `setBudgetAmount` (first write operation), enabling pay-period allocation and target adjustments
 - **Discord** — Alerts posted to threads in a designated channel
 - **Email** — Overspend alerts and weekly digests via SMTP relay
 - **Storage** — SQLite for conversation sessions and budget change proposals
+
+## Budget Targets
+
+Budget targets provide a monthly allocation baseline the agent can reason about and act on:
+
+- **Auto-seeded** on the 1st of each month from current budgeted amounts
+- **User adjusts** budgeted amounts in Actual to match available funds throughout the month
+- **"What's underfunded?"** — agent compares targets to current budgets and surfaces gaps
+- **Pay-period allocation** — on paydays, the agent sets budget amounts from targets: fixed bills get their full target when due, discretionary categories are split across two paychecks
+- **3rd paycheck months** — the 3rd paycheck is intentionally left unallocated for manual use (e.g., emergency fund, irregular expenses)
+
+## Agent Tools
+
+In addition to scheduled webhooks, the agent exposes conversational tools for Discord interactions:
+
+| Tool | Description |
+|------|-------------|
+| `getBudgetTargets` | Retrieve stored monthly targets for all categories |
+| `setBudgetTarget` | Update the target amount for a specific category |
+| `seedBudgetTargets` | Snapshot current budgeted amounts as the new target baseline |
+| `getUnderfundedCategories` | List categories where current budget is below target |
+| `allocatePayPeriodBudget` | Allocate budget from targets for the current pay period |
 
 ## Development
 
@@ -80,6 +106,8 @@ The ConfigMap (`/config/settings.json`) supports hot-reload without pod restart:
 | `overspendThresholdDollars` | 50 | Minimum overspend amount to trigger email alerts |
 | `emailCategories` | `["Natalie's Spending", "Dining Out", "Groceries"]` | Categories that trigger email alerts when overspent |
 | `proposalTtlHours` | 24 | Hours before a pending proposal expires and can be re-proposed |
+| `payFrequencyDays` | 14 | Days between paychecks (default: biweekly) |
+| `lastPayDate` | 2026-03-20 | Known payday anchor date for computing pay schedule |
 
 ## Deployment
 
