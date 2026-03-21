@@ -4,12 +4,15 @@ import { getBudgetStatus } from '../../actual/queries';
 import { getDynamicConfig } from '../../config';
 import { buildOverspendAlert } from '../../email/templates';
 import { sendEmail } from '../../email/client';
-import { runAgentForAlert, getAppContext } from '../../agent/index';
+import { getAppContext } from '../../agent/index';
+import { getOrCreateThread, postToThread } from '../../discord/threads';
 import { logger } from '../../logger';
 
 export async function handleOverspent(ctx: WebhookContext): Promise<void> {
-  const { discord, db, secrets, emailTransporter } = getAppContext();
+  const { discord, secrets, emailTransporter } = getAppContext();
   const { overspendThresholdDollars, emailCategories } = getDynamicConfig();
+
+  logger.info('Overspent handler: fetching budget status');
 
   let categories;
   try {
@@ -24,16 +27,25 @@ export async function handleOverspent(ctx: WebhookContext): Promise<void> {
   logger.info('Overspent check results', {
     totalCategories: categories.length,
     overspentCount: overspent.length,
-    sample: categories.slice(0, 5).map((c) => ({ name: c.name, available: c.available })),
+    overspent: overspent.map((c) => ({ name: c.name, available: c.available, budgeted: c.budgeted, spent: c.spent })),
   });
   if (overspent.length === 0) return;
 
+  // Post directly to Discord (no LLM) for troubleshooting
   const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  await runAgentForAlert(
-    discord, db, secrets,
-    `${overspent.length} overspent categor${overspent.length > 1 ? 'ies' : 'y'} — ${date}`,
-    `These categories are overspent: ${JSON.stringify(overspent)}. Please summarize.`
-  );
+  const title = `${overspent.length} overspent categor${overspent.length > 1 ? 'ies' : 'y'} — ${date}`;
+  const lines = overspent.map((c) => {
+    const over = Math.abs(c.available) / 100;
+    const budgeted = c.budgeted / 100;
+    const spent = Math.abs(c.spent) / 100;
+    return `• **${c.name}**: $${over.toFixed(2)} over (budgeted $${budgeted.toFixed(2)}, spent $${spent.toFixed(2)})`;
+  });
+
+  logger.info('Overspent handler: creating Discord thread');
+  const thread = await getOrCreateThread(discord, secrets.discordBudgetChannelId, title);
+  logger.info('Overspent handler: posting to thread', { threadId: thread.id });
+  await postToThread(discord, thread.id, lines.join('\n'));
+  logger.info('Overspent handler: Discord post complete');
 
   if (secrets.enableEmail) {
     for (const cat of overspent) {
@@ -44,4 +56,5 @@ export async function handleOverspent(ctx: WebhookContext): Promise<void> {
       }
     }
   }
+  logger.info('Overspent handler: complete');
 }
