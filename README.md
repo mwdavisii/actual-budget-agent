@@ -17,7 +17,7 @@ Budget Agent connects to your Actual Budget server and responds to scheduled web
 | **Seed Targets** | 1st of month 7am | Captures current budgeted amounts as target baseline |
 | **Pay-Period Allocation** | Daily 6:30am | On paydays, allocates budget from targets (fixed bills + discretionary split) |
 | **Monthly Review** | 1st of month | End-of-month budget summary |
-| **Weekly Digest** | Monday 7am | Weekly spending summary email |
+| **Weekly Digest** | Monday 7am | Weekly spending summary (Discord + email if enabled) |
 
 ### Architecture
 
@@ -59,7 +59,7 @@ The agent uses a configurable LLM (Claude, GPT, or Gemini) in specific places �
 - **Overspent categories** — posts a formatted summary directly to Discord (the LLM is not called)
 - **Seed targets** — snapshots budgeted amounts to SQLite and posts confirmation + JSON backup
 - **Pay-period allocation** — deterministic math (target amounts × pay schedule), posts results directly
-- **Weekly digest** — templated email, no LLM involved
+- **Weekly digest** — templated summary posted to Discord; also emailed if `ENABLE_EMAIL=true`
 - **Bank sync** — calls the Actual Budget sync API, then triggers the uncategorized handler
 
 **Interactive Discord chat:**
