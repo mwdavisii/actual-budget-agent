@@ -35,12 +35,12 @@ export async function withActual<T>(
         serverURL: serverUrl,
         password,
       });
-      await actualApi.downloadBudget(budgetId, { password });
       initialized = true;
-      logger.info('Actual Budget initialized and synced');
-    } else {
-      await actualApi.sync();
     }
+    // Always re-download to get the latest budget amounts — sync() only
+    // syncs transactions and does not refresh the budget spreadsheet cache.
+    await actualApi.downloadBudget(budgetId, { password });
+    logger.info('Actual Budget synced');
     return fn();
   });
 }
