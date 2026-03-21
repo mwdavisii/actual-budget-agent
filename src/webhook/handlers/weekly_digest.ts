@@ -32,6 +32,11 @@ export async function handleWeeklyDigest(ctx: WebhookContext): Promise<void> {
     return;
   }
 
+  if (!secrets.enableEmail) {
+    logger.info('Weekly digest skipped — email disabled');
+    return;
+  }
+
   const relevant = budget.filter((c) => emailCategories.includes(c.name));
   const weekSpent = txs.filter((t) => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
   const { subject, body } = buildWeeklyDigest(relevant, weekSpent);
