@@ -95,3 +95,25 @@ export async function getScheduledTransactions(): Promise<ScheduledTransaction[]
 export async function setCategoryForTransaction(txId: string, categoryId: string): Promise<void> {
   await actualApi.updateTransaction(txId, { category: categoryId });
 }
+
+export async function syncAllAccounts(): Promise<{
+  synced: string[];
+  failed: { id: string; name: string; error: string }[];
+}> {
+  const accounts = await actualApi.getAccounts() as Array<{ id: string; name: string; closed: boolean; offbudget: boolean }>;
+  const onBudget = accounts.filter((a) => !a.closed && !a.offbudget);
+
+  const synced: string[] = [];
+  const failed: { id: string; name: string; error: string }[] = [];
+
+  for (const account of onBudget) {
+    try {
+      await actualApi.runBankSync({ accountId: account.id });
+      synced.push(account.name);
+    } catch (err) {
+      failed.push({ id: account.id, name: account.name, error: String(err) });
+    }
+  }
+
+  return { synced, failed };
+}
