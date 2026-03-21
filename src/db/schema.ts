@@ -22,6 +22,12 @@ const DDL_STATEMENTS = [
     expires_at   INTEGER NOT NULL,
     created_at   INTEGER NOT NULL DEFAULT (unixepoch())
   )`,
+  `CREATE TABLE IF NOT EXISTS budget_targets (
+    category_id   TEXT PRIMARY KEY,
+    category_name TEXT NOT NULL,
+    target_amount INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+  )`,
 ];
 
 export function runMigrations(db: Database.Database): void {

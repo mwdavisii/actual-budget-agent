@@ -18,6 +18,7 @@ export interface CategoryStatus {
   budgeted: number;
   spent: number;
   available: number;
+  isIncome: boolean;
 }
 
 export interface ScheduledTransaction {
@@ -74,13 +75,14 @@ export async function getTransactions(filters: {
 export async function getBudgetStatus(month?: string): Promise<CategoryStatus[]> {
   const targetMonth = month ?? new Date().toISOString().slice(0, 7);
   const data = await actualApi.getBudgetMonth(targetMonth);
-  return (data.categoryGroups as Array<{ categories: unknown[] }>).flatMap((g) =>
+  return (data.categoryGroups as Array<{ is_income?: boolean; categories: unknown[] }>).flatMap((g) =>
     (g.categories as Array<Record<string, unknown>>).map((c) => ({
       id: String(c['id']),
       name: sanitizeObject({ name: String(c['name']) }).name,
       budgeted: Number(c['budgeted']),
       spent: Number(c['spent']),
       available: Number(c['balance']),
+      isIncome: g.is_income === true,
     }))
   );
 }
@@ -94,4 +96,30 @@ export async function getScheduledTransactions(): Promise<ScheduledTransaction[]
 
 export async function setCategoryForTransaction(txId: string, categoryId: string): Promise<void> {
   await actualApi.updateTransaction(txId, { category: categoryId });
+}
+
+export async function syncAllAccounts(): Promise<{
+  synced: string[];
+  failed: { id: string; name: string; error: string }[];
+}> {
+  const accounts = await actualApi.getAccounts() as Array<{ id: string; name: string; closed: boolean; offbudget: boolean }>;
+  const onBudget = accounts.filter((a) => !a.closed && !a.offbudget);
+
+  const synced: string[] = [];
+  const failed: { id: string; name: string; error: string }[] = [];
+
+  for (const account of onBudget) {
+    try {
+      await actualApi.runBankSync({ accountId: account.id });
+      synced.push(account.name);
+    } catch (err) {
+      failed.push({ id: account.id, name: account.name, error: String(err) });
+    }
+  }
+
+  return { synced, failed };
+}
+
+export async function allocateBudget(month: string, categoryId: string, amount: number): Promise<void> {
+  await actualApi.setBudgetAmount(month, categoryId, amount);
 }

@@ -9,7 +9,10 @@ export interface WebhookPayload {
     | 'overspent_categories'
     | 'unfunded_bills'
     | 'monthly_review'
-    | 'weekly_digest';
+    | 'weekly_digest'
+    | 'bank_sync'
+    | 'seed_targets'
+    | 'allocate_pay_period';
   triggeredAt: string;
 }
 

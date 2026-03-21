@@ -1,9 +1,9 @@
 import { buildWeeklyDigest, buildOverspendAlert } from '../../../src/email/templates';
 
 const categories = [
-  { id: '1', name: 'Groceries', budgeted: 50000, spent: 32000, available: 18000 },
-  { id: '2', name: 'Dining Out', budgeted: 20000, spent: 25000, available: -5000 },
-  { id: '3', name: "Natalie's Spending", budgeted: 10000, spent: 6000, available: 4000 },
+  { id: '1', name: 'Groceries', budgeted: 50000, spent: 32000, available: 18000, isIncome: false },
+  { id: '2', name: 'Dining Out', budgeted: 20000, spent: 25000, available: -5000, isIncome: false },
+  { id: '3', name: "Natalie's Spending", budgeted: 10000, spent: 6000, available: 4000, isIncome: false },
 ];
 
 describe('buildWeeklyDigest', () => {
