@@ -111,7 +111,89 @@ The ConfigMap (`/config/settings.json`) supports hot-reload without pod restart:
 
 ## Deployment
 
-Deployed to Kubernetes via [Flux GitOps](https://fluxcd.io/). Container images are built by GitHub Actions on push to `main` and auto-deployed via Flux image automation. See the [hops](https://github.com/mwdavisii/hops) repo for k8s manifests.
+### Docker
+
+Run with Docker using the pre-built image from GHCR:
+
+```bash
+docker run -d \
+  --name budget-agent \
+  -p 3000:3000 \
+  -v budget-agent-data:/data \
+  -v $(pwd)/settings.json:/config/settings.json:ro \
+  -e CLAUDE_API_KEY=sk-ant-... \
+  -e DISCORD_TOKEN=... \
+  -e DISCORD_ALLOWED_USER_ID=... \
+  -e DISCORD_BUDGET_CHANNEL_ID=... \
+  -e DISCORD_ERROR_CHANNEL_ID=... \
+  -e ACTUAL_SERVER_URL=https://actual.example.com \
+  -e ACTUAL_PASSWORD=... \
+  -e ACTUAL_BUDGET_ID=... \
+  -e SMTP_HOST=smtp.example.com \
+  -e SMTP_PORT=587 \
+  -e EMAIL=budget@example.com \
+  -e ADDITIONAL_EMAILS=alice@example.com,bob@example.com \
+  -e WEBHOOK_HMAC_KEY=$(openssl rand -hex 32) \
+  ghcr.io/mwdavisii/actual-budget-agent:latest
+```
+
+Or use an env file:
+
+```bash
+docker run -d \
+  --name budget-agent \
+  -p 3000:3000 \
+  -v budget-agent-data:/data \
+  -v $(pwd)/settings.json:/config/settings.json:ro \
+  --env-file .env \
+  ghcr.io/mwdavisii/actual-budget-agent:latest
+```
+
+Create a `settings.json` for dynamic configuration (see [Dynamic Configuration](#dynamic-configuration) below):
+
+```json
+{
+  "overspendThresholdDollars": 50,
+  "emailCategories": ["Dining Out", "Groceries"],
+  "proposalTtlHours": 24,
+  "payFrequencyDays": 14,
+  "lastPayDate": "2026-03-20"
+}
+```
+
+#### Triggering Webhooks with Cron
+
+The agent responds to HMAC-signed webhook POSTs. Without Kubernetes CronJobs, use the host crontab or a sidecar container. Example crontab entry for bank sync at 6am daily:
+
+```bash
+# Generate the HMAC signature and POST to the webhook
+0 6 * * * BODY='{"checkType":"bank_sync","triggeredAt":"'$(date -u +\%Y-\%m-\%dT\%H:\%M:\%SZ)'"}' && SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_HMAC_KEY" | sed 's/^.* //')" && curl -sf -X POST -H "Content-Type: application/json" -H "X-Webhook-Signature: $SIG" -d "$BODY" http://localhost:3000/webhook
+```
+
+Available `checkType` values: `bank_sync`, `allocate_pay_period`, `seed_targets`, `overspent_categories`, `unfunded_bills`, `monthly_review`, `weekly_digest`.
+
+### Docker Compose
+
+```yaml
+services:
+  budget-agent:
+    image: ghcr.io/mwdavisii/actual-budget-agent:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - budget-data:/data
+      - ./settings.json:/config/settings.json:ro
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  budget-data:
+```
+
+### Kubernetes
+
+Deployed via [Flux GitOps](https://fluxcd.io/). Container images are built by GitHub Actions on push to `main` and auto-deployed via Flux image automation. See the [hops](https://github.com/mwdavisii/hops) repo for k8s manifests.
 
 ## License
 
