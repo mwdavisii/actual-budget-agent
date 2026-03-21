@@ -4,7 +4,7 @@ An AI-powered assistant for [Actual Budget](https://actualbudget.org/) that moni
 
 ## How It Works
 
-Budget Agent connects to your Actual Budget server and responds to scheduled webhook triggers. Each trigger runs a specific check (overspent categories, uncategorized transactions, etc.), and the agent uses Claude Sonnet to analyze the results and post actionable proposals to a Discord channel. Critical alerts are also emailed.
+Budget Agent connects to your Actual Budget server and responds to scheduled webhook triggers. Each trigger runs a specific check (overspent categories, uncategorized transactions, etc.), and the agent uses an LLM (Claude, GPT, or Gemini) to analyze the results and post actionable proposals to a Discord channel. Critical alerts are also emailed.
 
 ### Alert Types
 
@@ -31,14 +31,14 @@ CronJobs (HMAC-signed webhooks)
   Discord Bot        Actual Budget API
         |                   |
         v                   v
-  Claude Agent <---- Budget Data
+  LLM Agent   <---- Budget Data
         |
         v
   Discord Thread + Email Alerts
 ```
 
 - **Webhook server** — Express with HMAC-SHA256 authentication
-- **AI agent** — Claude Sonnet with tools for querying budget data and proposing changes
+- **AI agent** — Configurable LLM (Claude, GPT, or Gemini) with tools for querying budget data and proposing changes
 - **Proposal cards** — Discord messages with Approve/Reject/Skip buttons showing payee, amount, account, and category
 - **Deduplication** — Proposals are cached by transaction ID for a configurable TTL (default 24h), preventing duplicate proposals across webhook runs
 - **Write operations** — The agent now writes budget amounts back to Actual via `setBudgetAmount` (first write operation), enabling pay-period allocation and target adjustments
@@ -81,7 +81,9 @@ npm run dev     # requires .env with secrets
 
 | Variable | Description |
 |----------|-------------|
-| `CLAUDE_API_KEY` | Anthropic API key |
+| `LLM_PROVIDER` | AI provider: `anthropic` (default), `openai`, or `gemini` |
+| `LLM_API_KEY` | API key for the chosen LLM provider |
+| `LLM_MODEL` | Model override (defaults: `claude-sonnet-4-6`, `gpt-4o`, `gemini-2.5-flash`) |
 | `DISCORD_TOKEN` | Discord bot token |
 | `DISCORD_ALLOWED_USER_ID` | Numeric Discord user ID allowed to interact |
 | `DISCORD_BUDGET_CHANNEL_ID` | Channel for budget alerts |
@@ -121,7 +123,8 @@ docker run -d \
   -p 3000:3000 \
   -v budget-agent-data:/data \
   -v $(pwd)/settings.json:/config/settings.json:ro \
-  -e CLAUDE_API_KEY=sk-ant-... \
+  -e LLM_API_KEY=sk-ant-... \
+  -e LLM_PROVIDER=anthropic \
   -e DISCORD_TOKEN=... \
   -e DISCORD_ALLOWED_USER_ID=... \
   -e DISCORD_BUDGET_CHANNEL_ID=... \

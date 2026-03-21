@@ -19,7 +19,7 @@ import { registerInteractionHandler } from './discord/interactions';
 import { initAppContext } from './agent/index';
 import { createEmailClient } from './email/client';
 import { postApprovalMessage, editMessage } from './discord/threads';
-import Anthropic from '@anthropic-ai/sdk';
+import { createLLMProvider, type LLMProviderName } from './llm/index';
 import { logger } from './logger';
 import type { ThreadChannel } from 'discord.js';
 import type { ActualConfig } from './agent/tools';
@@ -41,7 +41,8 @@ async function main() {
     host: secrets.smtpHost,
     port: secrets.smtpPort,
   });
-  const anthropic = new Anthropic({ apiKey: secrets.claudeApiKey });
+  const llm = createLLMProvider(secrets.llmProvider as LLMProviderName, secrets.llmApiKey, secrets.llmModel);
+  logger.info('LLM provider initialized', { provider: secrets.llmProvider, model: secrets.llmModel ?? 'default' });
 
   const actualConfig: ActualConfig = {
     dataDir: secrets.dataDir,
@@ -50,7 +51,7 @@ async function main() {
     password: secrets.actualPassword,
   };
 
-  initAppContext({ discord, db, secrets, emailTransporter, actualConfig, anthropic });
+  initAppContext({ discord, db, secrets, emailTransporter, actualConfig, llm });
 
   await loginDiscord(discord, secrets.discordToken);
   await new Promise<void>((resolve) => discord.once('ready', () => resolve()));

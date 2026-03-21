@@ -1,4 +1,4 @@
-import type { Tool } from '@anthropic-ai/sdk/resources/messages';
+import type { ToolDefinition } from '../llm/types';
 import { withActual } from '../actual/client';
 import {
   getUncategorizedTransactions,
@@ -17,17 +17,17 @@ export interface ActualConfig {
   password: string;
 }
 
-export const TOOL_DEFINITIONS: Tool[] = [
+export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'getUncategorizedTransactions',
     description: 'Fetch all transactions missing a budget category.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    parameters: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'getTransactions',
     description: 'Query transactions with optional filters. Amounts are in cents.',
-    input_schema: {
-      type: 'object' as const,
+    parameters: {
+      type: 'object',
       properties: {
         startDate: { type: 'string', description: 'YYYY-MM-DD' },
         endDate: { type: 'string', description: 'YYYY-MM-DD' },
@@ -42,8 +42,8 @@ export const TOOL_DEFINITIONS: Tool[] = [
   {
     name: 'getBudgetStatus',
     description: 'Get budgeted/spent/available per category. Amounts in cents.',
-    input_schema: {
-      type: 'object' as const,
+    parameters: {
+      type: 'object',
       properties: { month: { type: 'string', description: 'YYYY-MM (defaults to current month)' } },
       required: [],
     },
@@ -51,18 +51,18 @@ export const TOOL_DEFINITIONS: Tool[] = [
   {
     name: 'getScheduledTransactions',
     description: 'Get upcoming scheduled transactions and their funded status.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    parameters: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'getPendingProposals',
     description: 'List all pending categorization proposals and their expiry times.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    parameters: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'proposeCategory',
     description: 'Propose a category for a transaction. Posts a Discord approval message. Do NOT call applyCategory directly.',
-    input_schema: {
-      type: 'object' as const,
+    parameters: {
+      type: 'object',
       properties: {
         txId: { type: 'string', description: 'Transaction ID from Actual Budget' },
         category: { type: 'string', description: 'Category name to assign' },
@@ -77,13 +77,13 @@ export const TOOL_DEFINITIONS: Tool[] = [
   {
     name: 'getBudgetTargets',
     description: 'Get all stored budget targets with current budgeted amounts and the gap.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    parameters: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'setBudgetTarget',
     description: 'Set a budget target amount for a category. Set to 0 to remove.',
-    input_schema: {
-      type: 'object' as const,
+    parameters: {
+      type: 'object',
       properties: {
         categoryName: { type: 'string', description: 'Category name (case-insensitive exact match)' },
         amount: { type: 'number', description: 'Target amount in cents' },
@@ -94,18 +94,18 @@ export const TOOL_DEFINITIONS: Tool[] = [
   {
     name: 'seedBudgetTargets',
     description: 'Seed budget targets from current month budgeted amounts. Overwrites all existing targets. Excludes income categories.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    parameters: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'getUnderfundedCategories',
     description: 'Compare current budgeted amounts against stored targets. Returns categories where budgeted is less than target with the gap.',
-    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    parameters: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'allocatePayPeriodBudget',
     description: 'Allocate budget amounts for the current pay period. Fixed bills due before next payday get full target. Discretionary gets half on 1st paycheck, full on 2nd. 3rd paycheck skipped.',
-    input_schema: {
-      type: 'object' as const,
+    parameters: {
+      type: 'object',
       properties: {
         forceDate: { type: 'string', description: 'Optional ISO date to treat as payday (bypasses payday check). For testing.' },
       },

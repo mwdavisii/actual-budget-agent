@@ -2,7 +2,9 @@ import fs from 'fs';
 import { logger } from './logger';
 
 export interface SecretsConfig {
-  claudeApiKey: string;
+  llmProvider: string;
+  llmApiKey: string;
+  llmModel?: string;
   discordToken: string;
   smtpHost: string;
   smtpPort: number;
@@ -36,7 +38,9 @@ function requireEnv(name: string): string {
 
 export function getSecrets(): SecretsConfig {
   return {
-    claudeApiKey: requireEnv('CLAUDE_API_KEY'),
+    llmProvider: process.env['LLM_PROVIDER'] ?? 'anthropic',
+    llmApiKey: requireEnv('LLM_API_KEY'),
+    llmModel: process.env['LLM_MODEL'] || undefined,
     discordToken: requireEnv('DISCORD_TOKEN'),
     smtpHost: requireEnv('SMTP_HOST'),
     smtpPort: parseInt(requireEnv('SMTP_PORT'), 10),
