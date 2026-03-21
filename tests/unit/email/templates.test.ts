@@ -3,7 +3,7 @@ import { buildWeeklyDigest, buildOverspendAlert } from '../../../src/email/templ
 const categories = [
   { id: '1', name: 'Groceries', budgeted: 50000, spent: 32000, available: 18000, isIncome: false },
   { id: '2', name: 'Dining Out', budgeted: 20000, spent: 25000, available: -5000, isIncome: false },
-  { id: '3', name: "Natalie's Spending", budgeted: 10000, spent: 6000, available: 4000, isIncome: false },
+  { id: '3', name: 'Personal Spending', budgeted: 10000, spent: 6000, available: 4000, isIncome: false },
 ];
 
 describe('buildWeeklyDigest', () => {
