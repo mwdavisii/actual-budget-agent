@@ -192,3 +192,31 @@ export async function cleanupHiddenCategories(dryRun: boolean): Promise<{
 
   return { deleted: deletedNames.length, names: deletedNames.slice(0, 20), warnings };
 }
+
+export async function cleanupClosedAccounts(dryRun: boolean): Promise<{
+  deleted: number; names: string[]; warnings: string[];
+}> {
+  const accounts = await actualApi.getAccounts() as Array<{ id: string; name: string; closed: boolean }>;
+  const closed = accounts.filter((a) => a.closed);
+
+  const deletedNames: string[] = [];
+  const warnings: string[] = [];
+
+  for (const account of closed) {
+    const result = await actualApi.runQuery(
+      actualApi.q('transactions').filter({ account: account.id }).options({ splits: 'none' }).select(['id'])
+    );
+    if ((result as { data: unknown[] }).data.length > 0) continue;
+    if (!dryRun) {
+      try {
+        await actualApi.deleteAccount(account.id);
+      } catch (err) {
+        warnings.push(`Failed to delete account "${account.name}": ${String(err)}`);
+        continue;
+      }
+    }
+    deletedNames.push(account.name);
+  }
+
+  return { deleted: deletedNames.length, names: deletedNames.slice(0, 20), warnings };
+}
