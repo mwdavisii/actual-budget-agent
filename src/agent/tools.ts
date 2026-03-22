@@ -14,6 +14,7 @@ import { getPendingProposals } from '../db/proposals';
 import { getTargets, setTarget, seedTargets, getUnderfundedCategories, exportTargets, importTargets, type TargetExport } from '../db/targets';
 import type Database from 'better-sqlite3';
 import type { Client } from 'discord.js';
+import { AttachmentBuilder } from 'discord.js';
 
 export interface ActualConfig {
   dataDir: string;
@@ -299,6 +300,25 @@ export async function executeTool(
           warnings.push(`Account cleanup failed: ${String(err)}`);
         }
         return { dryRun, transactions, categories, accounts, warnings };
+      });
+    }
+
+    case 'export_budget': {
+      if (!context?.discord || !context?.threadId) {
+        return { error: 'No Discord context available for export_budget' };
+      }
+      const { discord, threadId } = context;
+      return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
+        const exportResult = await (actualApi as any).internal.send('export-budget') as { data?: Buffer; error?: string };
+        if (exportResult.error || !exportResult.data) {
+          throw new Error(`Export failed: ${exportResult.error ?? 'no data returned'}`);
+        }
+        const dateStr = new Date().toISOString().slice(0, 10);
+        // eslint-disable-next-line new-cap
+        const attachment = (AttachmentBuilder as unknown as (data: Buffer, opts: { name: string }) => unknown)(exportResult.data, { name: `budget-backup-${dateStr}.zip` });
+        const thread = await discord.channels.fetch(threadId) as any;
+        await thread.send({ content: `Budget backup — ${dateStr}`, files: [attachment] });
+        return { success: true, filename: `budget-backup-${dateStr}.zip` };
       });
     }
 
