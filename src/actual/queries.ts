@@ -149,8 +149,10 @@ export async function pruneTransactions(
   const sample = rows.slice(0, 5).map((r) => `${r.date} ${r.payee ?? '(no payee)'} $${(r.amount / 100).toFixed(2)}`);
 
   if (!dryRun) {
-    for (const row of rows) {
-      await actualApi.deleteTransaction(row.id);
+    for (let i = 0; i < rows.length; i++) {
+      await actualApi.deleteTransaction(rows[i].id);
+      // Yield to the event loop every 50 deletes so liveness probes stay healthy
+      if (i % 50 === 49) await new Promise((r) => setImmediate(r));
     }
   }
 
