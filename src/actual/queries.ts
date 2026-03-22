@@ -123,3 +123,24 @@ export async function syncAllAccounts(): Promise<{
 export async function allocateBudget(month: string, categoryId: string, amount: number): Promise<void> {
   await actualApi.setBudgetAmount(month, categoryId, amount);
 }
+
+export function getRollingPruneCutoff(months: number): string {
+  const d = new Date();
+  let year = d.getUTCFullYear();
+  let month = d.getUTCMonth() - months;
+  const day = d.getUTCDate();
+
+  // Adjust year/month for negative months
+  while (month < 0) {
+    month += 12;
+    year -= 1;
+  }
+
+  // Get last day of target month
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const targetDay = Math.min(day, lastDay);
+
+  // Create result date
+  const result = new Date(Date.UTC(year, month, targetDay));
+  return result.toISOString().slice(0, 10);
+}
