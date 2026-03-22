@@ -109,11 +109,21 @@ export async function syncAllAccounts(): Promise<{
   const failed: { id: string; name: string; error: string }[] = [];
 
   for (const account of onBudget) {
-    try {
-      await actualApi.runBankSync({ accountId: account.id });
-      synced.push(account.name);
-    } catch (err) {
-      failed.push({ id: account.id, name: account.name, error: String(err) });
+    let lastErr: unknown;
+    let succeeded = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 5000));
+        await actualApi.runBankSync({ accountId: account.id });
+        synced.push(account.name);
+        succeeded = true;
+        break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    if (!succeeded) {
+      failed.push({ id: account.id, name: account.name, error: String(lastErr) });
     }
   }
 
