@@ -133,3 +133,26 @@ export async function syncAllAccounts(): Promise<{
 export async function allocateBudget(month: string, categoryId: string, amount: number): Promise<void> {
   await actualApi.setBudgetAmount(month, categoryId, amount);
 }
+
+export async function pruneTransactions(
+  before: string,
+  dryRun: boolean
+): Promise<{ deleted: number; dryRun: boolean; sample: string[] }> {
+  const result = await actualApi.runQuery(
+    actualApi.q('transactions')
+      .filter({ date: { $lt: before } })
+      .options({ splits: 'none' })
+      .select(['id', 'date', 'payee', 'amount'])
+  );
+  const rows = (result as { data: Array<{ id: string; date: string; payee: string; amount: number }> }).data;
+
+  const sample = rows.slice(0, 5).map((r) => `${r.date} ${r.payee ?? '(no payee)'} $${(r.amount / 100).toFixed(2)}`);
+
+  if (!dryRun) {
+    for (const row of rows) {
+      await actualApi.deleteTransaction(row.id);
+    }
+  }
+
+  return { deleted: rows.length, dryRun, sample };
+}

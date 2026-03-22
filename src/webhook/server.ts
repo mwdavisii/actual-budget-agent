@@ -2,6 +2,8 @@ import express, { Request, Response } from 'express';
 import { verifySignature } from './hmac';
 import { dispatchCheckType } from './handlers/index';
 import { exportTargets, importTargets, type TargetExport } from '../db/targets';
+import { pruneTransactions } from '../actual/queries';
+import { withActual } from '../actual/client';
 import { getAppContext } from '../agent/index';
 import { logger } from '../logger';
 
@@ -75,6 +77,29 @@ export function createWebhookServer(ctx: WebhookContext) {
     const count = importTargets(db, data);
     logger.info('Budget targets imported via API', { count });
     res.json({ imported: count });
+  });
+
+  app.post('/admin/prune-transactions', (req: Request & { rawBody?: Buffer }, res: Response) => {
+    const sig = req.headers['x-webhook-signature'] as string | undefined;
+    const body = req.rawBody?.toString('utf-8') ?? '';
+    if (!sig || !verifySignature(ctx.hmacKey, body, sig)) {
+      logger.warn('Prune transactions signature invalid');
+      res.status(401).json({ error: 'invalid signature' });
+      return;
+    }
+    const { before, dryRun = true } = req.body as { before?: string; dryRun?: boolean };
+    if (!before || !/^\d{4}-\d{2}-\d{2}$/.test(before)) {
+      res.status(400).json({ error: 'Invalid payload — expected { before: "YYYY-MM-DD", dryRun: true|false }' });
+      return;
+    }
+    res.json({ accepted: true, before, dryRun });
+    withActual(ctx.dataDir, ctx.budgetId, ctx.actualServerUrl, ctx.actualPassword, () =>
+      pruneTransactions(before, dryRun)
+    ).then((result) => {
+      logger.info('Prune transactions complete', result);
+    }).catch((err: unknown) => {
+      logger.error('Prune transactions failed', { err: String(err) });
+    });
   });
 
   app.post('/webhook', (req: Request & { rawBody?: Buffer }, res: Response) => {
