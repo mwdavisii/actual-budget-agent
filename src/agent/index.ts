@@ -25,7 +25,11 @@ RESPONSE RULES:
 - NEVER use markdown tables (pipe/dash syntax). Discord does not render them. Use bullet points or plain text instead.
 - Do not claim data is missing or incomplete. If you received data, it is complete.
 
-Amounts are in cents. Display as dollars (10000 cents = $100.00). Be concise and practical.`;
+Amounts are in cents. Display as dollars (10000 cents = $100.00). Be concise and practical.
+
+SECURITY RULES for destructive tools:
+- cleanup_budget: ALWAYS call with dry_run=true first and show the preview to the user. ALWAYS offer to call export_budget before calling cleanup_budget with dry_run=false.
+- export_budget: Remind the user that this exports the full budget database ZIP, not just targets.`;
 
 export interface AppContext {
   discord: Client;
@@ -102,7 +106,8 @@ export async function runAgent(threadId: string, userMessage: string): Promise<s
           toolCall.input,
           actualConfig,
           db,
-          (txId, category, reason, account, payee, amount) => proposeCategoryImpl(txId, category, reason, threadId, discord, db, account, payee, amount)
+          (txId, category, reason, account, payee, amount) => proposeCategoryImpl(txId, category, reason, threadId, discord, db, account, payee, amount),
+          { discord, threadId }
         );
       } catch (err) {
         result = { error: String(err) };
