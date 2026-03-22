@@ -266,6 +266,42 @@ export async function executeTool(
       return { success: true, imported: count };
     }
 
+    case 'cleanup_budget': {
+      const months = Number(input['months']);
+      const dryRun = input['dry_run'] !== false; // defaults to true
+      if (months < 3) return { error: 'months must be >= 3 to prevent accidental data loss' };
+
+      const warnings: string[] = [];
+      let transactions = { count: 0, sample: [] as string[] };
+      let categories = { count: 0, names: [] as string[] };
+      let accounts = { count: 0, names: [] as string[] };
+
+      return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
+        try {
+          const cutoff = getRollingPruneCutoff(months);
+          const pruneResult = await pruneTransactions(cutoff, dryRun);
+          transactions = { count: pruneResult.deleted, sample: pruneResult.sample };
+        } catch (err) {
+          warnings.push(`Transaction prune failed: ${String(err)}`);
+        }
+        try {
+          const catResult = await cleanupHiddenCategories(dryRun);
+          categories = { count: catResult.deleted, names: catResult.names };
+          warnings.push(...catResult.warnings);
+        } catch (err) {
+          warnings.push(`Category cleanup failed: ${String(err)}`);
+        }
+        try {
+          const accResult = await cleanupClosedAccounts(dryRun);
+          accounts = { count: accResult.deleted, names: accResult.names };
+          warnings.push(...accResult.warnings);
+        } catch (err) {
+          warnings.push(`Account cleanup failed: ${String(err)}`);
+        }
+        return { dryRun, transactions, categories, accounts, warnings };
+      });
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
