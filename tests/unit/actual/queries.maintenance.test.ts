@@ -108,6 +108,8 @@ describe('cleanupHiddenCategories', () => {
 
     expect(actualApi.deleteCategoryGroup).toHaveBeenCalledWith('g1');
     expect(result.warnings).toHaveLength(0);
+    expect(result.deleted).toBe(1);
+    expect(result.names).toContain('Ghost Group');
   });
 
   it('records warning and continues when a delete fails', async () => {

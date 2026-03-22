@@ -126,23 +126,16 @@ export async function allocateBudget(month: string, categoryId: string, amount: 
 
 export function getRollingPruneCutoff(months: number): string {
   const d = new Date();
-  let year = d.getUTCFullYear();
-  let month = d.getUTCMonth() - months;
-  const day = d.getUTCDate();
-
-  // Adjust year/month for negative months
-  while (month < 0) {
-    month += 12;
-    year -= 1;
-  }
-
-  // Get last day of target month
-  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  const targetDay = Math.min(day, lastDay);
-
-  // Create result date
-  const result = new Date(Date.UTC(year, month, targetDay));
-  return result.toISOString().slice(0, 10);
+  const day = d.getDate();
+  d.setDate(1); // Anchor to 1st before subtracting months to prevent overflow
+  d.setMonth(d.getMonth() - months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  // Format as YYYY-MM-DD using local date parts
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const dayStr = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${dayStr}`;
 }
 
 export async function cleanupHiddenCategories(dryRun: boolean): Promise<{
@@ -186,8 +179,10 @@ export async function cleanupHiddenCategories(dryRun: boolean): Promise<{
         await actualApi.deleteCategoryGroup(group.id);
       } catch (err) {
         warnings.push(`Failed to delete category group "${group.name}": ${String(err)}`);
+        continue;
       }
     }
+    deletedNames.push(group.name);
   }
 
   return { deleted: deletedNames.length, names: deletedNames.slice(0, 20), warnings };
