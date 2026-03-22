@@ -124,6 +124,31 @@ export async function allocateBudget(month: string, categoryId: string, amount: 
   await actualApi.setBudgetAmount(month, categoryId, amount);
 }
 
+export async function pruneTransactions(cutoff: string, dryRun: boolean): Promise<{
+  deleted: number; dryRun: boolean; sample: string[];
+}> {
+  const result = await actualApi.runQuery(
+    actualApi.q('transactions')
+      .filter({ date: { $lt: cutoff } })
+      .options({ splits: 'none' })
+      .select(['id', 'date', 'payee_name', 'amount'])
+  ) as { data: Array<{ id: string; date: string; payee_name?: string; amount?: number }> };
+
+  const rows = result.data;
+  if (!dryRun) {
+    for (const row of rows) {
+      await actualApi.deleteTransaction(row.id);
+    }
+  }
+
+  const sample = rows.slice(0, 5).map((r) => {
+    const amountStr = r.amount != null ? ` $${(Math.abs(r.amount) / 100).toFixed(2)}` : '';
+    return `${r.date} ${r.payee_name ?? 'Unknown'}${amountStr}`;
+  });
+
+  return { deleted: rows.length, dryRun, sample };
+}
+
 export function getRollingPruneCutoff(months: number): string {
   const d = new Date();
   const day = d.getDate();

@@ -1,14 +1,19 @@
 import type { ToolDefinition } from '../llm/types';
-import { withActual } from '../actual/client';
+import { withActual, actualApi } from '../actual/client';
 import {
   getUncategorizedTransactions,
   getTransactions,
   getBudgetStatus,
   getScheduledTransactions,
+  getRollingPruneCutoff,
+  cleanupHiddenCategories,
+  cleanupClosedAccounts,
+  pruneTransactions,
 } from '../actual/queries';
 import { getPendingProposals } from '../db/proposals';
 import { getTargets, setTarget, seedTargets, getUnderfundedCategories, exportTargets, importTargets, type TargetExport } from '../db/targets';
 import type Database from 'better-sqlite3';
+import type { Client } from 'discord.js';
 
 export interface ActualConfig {
   dataDir: string;
@@ -140,6 +145,29 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ['targets'],
     },
   },
+  {
+    name: 'cleanup_budget',
+    description: 'Preview or execute budget maintenance: prune old transactions, delete hidden categories with no transactions, and delete closed accounts with no transactions. ALWAYS call with dry_run=true first to preview. ALWAYS offer export_budget before calling with dry_run=false.',
+    parameters: {
+      type: 'object',
+      properties: {
+        months: {
+          type: 'number',
+          description: 'Delete transactions older than this many months. Must be >= 3.',
+        },
+        dry_run: {
+          type: 'boolean',
+          description: 'If true (default), returns a preview without deleting anything.',
+        },
+      },
+      required: ['months'],
+    },
+  },
+  {
+    name: 'export_budget',
+    description: 'Exports the Actual Budget database as a ZIP file attachment in the current Discord thread. This exports the full budget database, not the budget targets JSON.',
+    parameters: { type: 'object', properties: {}, required: [] },
+  },
 ];
 
 export async function executeTool(
@@ -147,7 +175,8 @@ export async function executeTool(
   input: Record<string, unknown>,
   actualConfig: ActualConfig,
   db: Database.Database,
-  proposeCategoryFn: (txId: string, category: string, reason: string, account?: string, payee?: string, amount?: number) => Promise<string>
+  proposeCategoryFn: (txId: string, category: string, reason: string, account?: string, payee?: string, amount?: number) => Promise<string>,
+  context?: { discord: Client; threadId: string }
 ): Promise<unknown> {
   switch (toolName) {
     case 'getUncategorizedTransactions':
