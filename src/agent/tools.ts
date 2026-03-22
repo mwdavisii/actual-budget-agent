@@ -270,7 +270,7 @@ export async function executeTool(
     case 'cleanup_budget': {
       const months = Number(input['months']);
       const dryRun = input['dry_run'] !== false; // defaults to true
-      if (months < 3) return { error: 'months must be >= 3 to prevent accidental data loss' };
+      if (!Number.isFinite(months) || months < 3) return { error: 'months must be >= 3 to prevent accidental data loss' };
 
       const warnings: string[] = [];
       let transactions = { count: 0, sample: [] as string[] };
@@ -311,11 +311,10 @@ export async function executeTool(
       return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
         const exportResult = await (actualApi as any).internal.send('export-budget') as { data?: Buffer; error?: string };
         if (exportResult.error || !exportResult.data) {
-          throw new Error(`Export failed: ${exportResult.error ?? 'no data returned'}`);
+          return { error: `Export failed: ${exportResult.error ?? 'no data returned'}` };
         }
         const dateStr = new Date().toISOString().slice(0, 10);
-        // eslint-disable-next-line new-cap
-        const attachment = (AttachmentBuilder as unknown as (data: Buffer, opts: { name: string }) => unknown)(exportResult.data, { name: `budget-backup-${dateStr}.zip` });
+        const attachment = new AttachmentBuilder(exportResult.data, { name: `budget-backup-${dateStr}.zip` });
         const thread = await discord.channels.fetch(threadId) as any;
         await thread.send({ content: `Budget backup — ${dateStr}`, files: [attachment] });
         return { success: true, filename: `budget-backup-${dateStr}.zip` };

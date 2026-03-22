@@ -35,9 +35,11 @@ vi.mock('discord.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('discord.js')>();
   return {
     ...real,
-    AttachmentBuilder: vi.fn().mockImplementation((data: Buffer, opts: { name: string }) => ({
-      _isAttachment: true, data, name: opts.name,
-    })),
+    AttachmentBuilder: vi.fn().mockImplementation(function(this: any, data: Buffer, opts: { name: string }) {
+      this._isAttachment = true;
+      this.data = data;
+      this.name = opts.name;
+    }),
   };
 });
 
@@ -137,13 +139,12 @@ describe('executeTool — export_budget', () => {
     expect(result.filename).toMatch(/budget-backup-\d{4}-\d{2}-\d{2}\.zip/);
   });
 
-  it('throws when export returns error field', async () => {
+  it('returns error object when export returns error field', async () => {
     vi.mocked((actualApi as any).internal.send).mockResolvedValue({ error: 'internal-error' });
 
     const mockDiscord = { channels: { fetch: vi.fn() } };
-    await expect(
-      executeTool('export_budget', {}, actualConfig, makeDb(), noop,
-        { discord: mockDiscord as any, threadId: 'thread-abc' })
-    ).rejects.toThrow('Export failed');
+    const result = await executeTool('export_budget', {}, actualConfig, makeDb(), noop,
+      { discord: mockDiscord as any, threadId: 'thread-abc' }) as any;
+    expect(result).toMatchObject({ error: expect.stringContaining('Export failed') });
   });
 });
