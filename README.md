@@ -67,6 +67,16 @@ The agent uses a configurable LLM (Claude, GPT, or Gemini) in specific places �
 
 **Cost implications:** With default schedules, the LLM is called ~1-2 times daily (uncategorized after bank sync, plus unfunded) and once monthly (review). Interactive Discord chat is on-demand. All other handlers run without LLM calls.
 
+### Agent Tools
+
+The following tools are available to the AI agent when responding to Discord messages. They can be triggered by chatting with the bot in any budget thread.
+
+**cleanup_budget** — Runs budget maintenance: prunes old transactions, removes hidden categories with no transaction history, and removes closed accounts with no transaction history. Always previews before deleting. Example: _"Clean up anything older than 2 years"_
+
+**export_budget** — Exports the full Actual Budget database as a ZIP file attached to the Discord thread. Use this before committing a cleanup. Example: _"Export a backup of the budget"_
+
+The agent enforces a safe flow: it will always show a dry-run preview first and offer to export a backup before any data is removed. You must explicitly confirm before deletion proceeds.
+
 ## Budget Targets
 
 Budget targets provide a monthly allocation baseline the agent can reason about and act on:

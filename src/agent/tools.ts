@@ -1,14 +1,20 @@
 import type { ToolDefinition } from '../llm/types';
-import { withActual } from '../actual/client';
+import { withActual, actualApi } from '../actual/client';
 import {
   getUncategorizedTransactions,
   getTransactions,
   getBudgetStatus,
   getScheduledTransactions,
+  getRollingPruneCutoff,
+  cleanupHiddenCategories,
+  cleanupClosedAccounts,
+  pruneTransactions,
 } from '../actual/queries';
 import { getPendingProposals } from '../db/proposals';
 import { getTargets, setTarget, seedTargets, getUnderfundedCategories, exportTargets, importTargets, type TargetExport } from '../db/targets';
 import type Database from 'better-sqlite3';
+import type { Client } from 'discord.js';
+import { AttachmentBuilder } from 'discord.js';
 
 export interface ActualConfig {
   dataDir: string;
@@ -140,6 +146,29 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ['targets'],
     },
   },
+  {
+    name: 'cleanup_budget',
+    description: 'Preview or execute budget maintenance: prune old transactions, delete hidden categories with no transactions, and delete closed accounts with no transactions. ALWAYS call with dry_run=true first to preview. ALWAYS offer export_budget before calling with dry_run=false.',
+    parameters: {
+      type: 'object',
+      properties: {
+        months: {
+          type: 'number',
+          description: 'Delete transactions older than this many months. Must be >= 3.',
+        },
+        dry_run: {
+          type: 'boolean',
+          description: 'If true (default), returns a preview without deleting anything.',
+        },
+      },
+      required: ['months'],
+    },
+  },
+  {
+    name: 'export_budget',
+    description: 'Exports the Actual Budget database as a ZIP file attachment in the current Discord thread. This exports the full budget database, not the budget targets JSON.',
+    parameters: { type: 'object', properties: {}, required: [] },
+  },
 ];
 
 export async function executeTool(
@@ -147,7 +176,8 @@ export async function executeTool(
   input: Record<string, unknown>,
   actualConfig: ActualConfig,
   db: Database.Database,
-  proposeCategoryFn: (txId: string, category: string, reason: string, account?: string, payee?: string, amount?: number) => Promise<string>
+  proposeCategoryFn: (txId: string, category: string, reason: string, account?: string, payee?: string, amount?: number) => Promise<string>,
+  context?: { discord: Client; threadId: string }
 ): Promise<unknown> {
   switch (toolName) {
     case 'getUncategorizedTransactions':
@@ -235,6 +265,60 @@ export async function executeTool(
       const targets = input['targets'] as TargetExport['targets'];
       const count = importTargets(db, { exportedAt: new Date().toISOString(), targets });
       return { success: true, imported: count };
+    }
+
+    case 'cleanup_budget': {
+      const months = Number(input['months']);
+      const dryRun = input['dry_run'] !== false; // defaults to true
+      if (!Number.isFinite(months) || months < 3) return { error: 'months must be >= 3 to prevent accidental data loss' };
+
+      const warnings: string[] = [];
+      let transactions = { count: 0, sample: [] as string[] };
+      let categories = { count: 0, names: [] as string[] };
+      let accounts = { count: 0, names: [] as string[] };
+
+      return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
+        try {
+          const cutoff = getRollingPruneCutoff(months);
+          const pruneResult = await pruneTransactions(cutoff, dryRun);
+          transactions = { count: pruneResult.deleted, sample: pruneResult.sample };
+        } catch (err) {
+          warnings.push(`Transaction prune failed: ${String(err)}`);
+        }
+        try {
+          const catResult = await cleanupHiddenCategories(dryRun);
+          categories = { count: catResult.deleted, names: catResult.names };
+          warnings.push(...catResult.warnings);
+        } catch (err) {
+          warnings.push(`Category cleanup failed: ${String(err)}`);
+        }
+        try {
+          const accResult = await cleanupClosedAccounts(dryRun);
+          accounts = { count: accResult.deleted, names: accResult.names };
+          warnings.push(...accResult.warnings);
+        } catch (err) {
+          warnings.push(`Account cleanup failed: ${String(err)}`);
+        }
+        return { dryRun, transactions, categories, accounts, warnings };
+      });
+    }
+
+    case 'export_budget': {
+      if (!context?.discord || !context?.threadId) {
+        return { error: 'No Discord context available for export_budget' };
+      }
+      const { discord, threadId } = context;
+      return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
+        const exportResult = await (actualApi as any).internal.send('export-budget') as { data?: Buffer; error?: string };
+        if (exportResult.error || !exportResult.data) {
+          return { error: `Export failed: ${exportResult.error ?? 'no data returned'}` };
+        }
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const attachment = new AttachmentBuilder(exportResult.data, { name: `budget-backup-${dateStr}.zip` });
+        const thread = await discord.channels.fetch(threadId) as any;
+        await thread.send({ content: `Budget backup — ${dateStr}`, files: [attachment] });
+        return { success: true, filename: `budget-backup-${dateStr}.zip` };
+      });
     }
 
     default:

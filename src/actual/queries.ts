@@ -158,3 +158,95 @@ export async function pruneTransactions(
 
   return { deleted: rows.length, dryRun, sample };
 }
+
+export function getRollingPruneCutoff(months: number): string {
+  const d = new Date();
+  const day = d.getDate();
+  d.setDate(1); // Anchor to 1st before subtracting months to prevent overflow
+  d.setMonth(d.getMonth() - months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  // Format as YYYY-MM-DD using local date parts
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const dayStr = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${dayStr}`;
+}
+
+export async function cleanupHiddenCategories(dryRun: boolean): Promise<{
+  deleted: number; names: string[]; warnings: string[];
+}> {
+  const groups = await actualApi.getCategoryGroups() as Array<{
+    id: string; name: string; hidden: boolean;
+    categories: Array<{ id: string; name: string; hidden: boolean }>;
+  }>;
+
+  const deletedIds = new Set<string>();
+  const deletedNames: string[] = [];
+  const warnings: string[] = [];
+
+  for (const group of groups) {
+    for (const cat of group.categories) {
+      if (!cat.hidden) continue;
+      const result = await actualApi.runQuery(
+        actualApi.q('transactions').filter({ category: cat.id }).options({ splits: 'none' }).select(['id'])
+      );
+      if ((result as { data: unknown[] }).data.length > 0) continue;
+      if (!dryRun) {
+        try {
+          await actualApi.deleteCategory(cat.id);
+        } catch (err) {
+          warnings.push(`Failed to delete category "${cat.name}": ${String(err)}`);
+          continue;
+        }
+      }
+      deletedIds.add(cat.id);
+      deletedNames.push(cat.name);
+    }
+
+    if (!group.hidden) continue;
+    const groupIsEmpty =
+      group.categories.length === 0 ||
+      group.categories.every((c) => deletedIds.has(c.id));
+    if (!groupIsEmpty) continue;
+    if (!dryRun) {
+      try {
+        await actualApi.deleteCategoryGroup(group.id);
+      } catch (err) {
+        warnings.push(`Failed to delete category group "${group.name}": ${String(err)}`);
+        continue;
+      }
+    }
+    deletedNames.push(group.name);
+  }
+
+  return { deleted: deletedNames.length, names: deletedNames.slice(0, 20), warnings };
+}
+
+export async function cleanupClosedAccounts(dryRun: boolean): Promise<{
+  deleted: number; names: string[]; warnings: string[];
+}> {
+  const accounts = await actualApi.getAccounts() as Array<{ id: string; name: string; closed: boolean }>;
+  const closed = accounts.filter((a) => a.closed);
+
+  const deletedNames: string[] = [];
+  const warnings: string[] = [];
+
+  for (const account of closed) {
+    const result = await actualApi.runQuery(
+      actualApi.q('transactions').filter({ account: account.id }).options({ splits: 'none' }).select(['id'])
+    );
+    if ((result as { data: unknown[] }).data.length > 0) continue;
+    if (!dryRun) {
+      try {
+        await actualApi.deleteAccount(account.id);
+      } catch (err) {
+        warnings.push(`Failed to delete account "${account.name}": ${String(err)}`);
+        continue;
+      }
+    }
+    deletedNames.push(account.name);
+  }
+
+  return { deleted: deletedNames.length, names: deletedNames.slice(0, 20), warnings };
+}
