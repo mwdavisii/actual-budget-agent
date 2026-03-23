@@ -109,11 +109,21 @@ export async function syncAllAccounts(): Promise<{
   const failed: { id: string; name: string; error: string }[] = [];
 
   for (const account of onBudget) {
-    try {
-      await actualApi.runBankSync({ accountId: account.id });
-      synced.push(account.name);
-    } catch (err) {
-      failed.push({ id: account.id, name: account.name, error: String(err) });
+    let lastErr: unknown;
+    let succeeded = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 5000));
+        await actualApi.runBankSync({ accountId: account.id });
+        synced.push(account.name);
+        succeeded = true;
+        break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    if (!succeeded) {
+      failed.push({ id: account.id, name: account.name, error: String(lastErr) });
     }
   }
 
@@ -124,27 +134,27 @@ export async function allocateBudget(month: string, categoryId: string, amount: 
   await actualApi.setBudgetAmount(month, categoryId, amount);
 }
 
-export async function pruneTransactions(cutoff: string, dryRun: boolean): Promise<{
-  deleted: number; dryRun: boolean; sample: string[];
-}> {
+export async function pruneTransactions(
+  before: string,
+  dryRun: boolean
+): Promise<{ deleted: number; dryRun: boolean; sample: string[] }> {
   const result = await actualApi.runQuery(
     actualApi.q('transactions')
-      .filter({ date: { $lt: cutoff } })
+      .filter({ date: { $lt: before } })
       .options({ splits: 'none' })
-      .select(['id', 'date', 'payee_name', 'amount'])
-  ) as { data: Array<{ id: string; date: string; payee_name?: string; amount?: number }> };
+      .select(['id', 'date', 'payee', 'amount'])
+  );
+  const rows = (result as { data: Array<{ id: string; date: string; payee: string; amount: number }> }).data;
 
-  const rows = result.data;
+  const sample = rows.slice(0, 5).map((r) => `${r.date} ${r.payee ?? '(no payee)'} $${(r.amount / 100).toFixed(2)}`);
+
   if (!dryRun) {
-    for (const row of rows) {
-      await actualApi.deleteTransaction(row.id);
+    for (let i = 0; i < rows.length; i++) {
+      await actualApi.deleteTransaction(rows[i].id);
+      // Yield to the event loop every 50 deletes so liveness probes stay healthy
+      if (i % 50 === 49) await new Promise((r) => setImmediate(r));
     }
   }
-
-  const sample = rows.slice(0, 5).map((r) => {
-    const amountStr = r.amount != null ? ` $${(Math.abs(r.amount) / 100).toFixed(2)}` : '';
-    return `${r.date} ${r.payee_name ?? 'Unknown'}${amountStr}`;
-  });
 
   return { deleted: rows.length, dryRun, sample };
 }
