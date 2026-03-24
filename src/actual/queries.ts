@@ -142,21 +142,102 @@ export async function pruneTransactions(
     actualApi.q('transactions')
       .filter({ date: { $lt: before } })
       .options({ splits: 'none' })
-      .select(['id', 'date', 'payee', 'amount'])
+      .select(['id', 'date', 'payee', 'amount', 'category'])
   );
-  const rows = (result as { data: Array<{ id: string; date: string; payee: string; amount: number }> }).data;
+  const rows = (result as { data: Array<{ id: string; date: string; payee: string; amount: number; category: string | null }> }).data;
 
   const sample = rows.slice(0, 5).map((r) => `${r.date} ${r.payee ?? '(no payee)'} $${(r.amount / 100).toFixed(2)}`);
 
-  if (!dryRun) {
+  if (!dryRun && rows.length > 0) {
+    // Determine month boundaries
+    const [byear, bmonth] = before.split('-').map(Number);
+    const firstKeptMonth = `${byear}-${String(bmonth).padStart(2, '0')}`;
+    const lzDate = new Date(byear, bmonth - 2, 1); // month before firstKeptMonth
+    const lastZeroedMonth = `${lzDate.getFullYear()}-${String(lzDate.getMonth() + 1).padStart(2, '0')}`;
+
+    // Capture carry-forward balances from lastZeroedMonth (before any changes)
+    const lastZeroedData = await actualApi.getBudgetMonth(lastZeroedMonth) as {
+      categoryGroups: Array<{ is_income?: boolean; categories: Array<{ id: string; balance: number; budgeted: number }> }>;
+    };
+    const carryForwards: Record<string, number> = {};   // non-income only
+    const allCategoryIds: string[] = [];
+    for (const group of lastZeroedData.categoryGroups) {
+      for (const cat of group.categories) {
+        allCategoryIds.push(cat.id);
+        if (!group.is_income) carryForwards[cat.id] = Number(cat.balance);
+      }
+    }
+
+    // Capture existing budget amounts for firstKeptMonth (before any changes)
+    const firstKeptData = await actualApi.getBudgetMonth(firstKeptMonth) as {
+      categoryGroups: Array<{ categories: Array<{ id: string; budgeted: number }> }>;
+    };
+    const firstKeptBudgets: Record<string, number> = {};
+    for (const group of firstKeptData.categoryGroups) {
+      for (const cat of group.categories) {
+        firstKeptBudgets[cat.id] = Number(cat.budgeted);
+      }
+    }
+
+    // Sum deleted transaction amounts per category within firstKeptMonth (mid-month cutoff)
+    const deletedInFirstKept: Record<string, number> = {};
+    for (const row of rows) {
+      if (row.date.slice(0, 7) === firstKeptMonth && row.category) {
+        deletedInFirstKept[row.category] = (deletedInFirstKept[row.category] ?? 0) + row.amount;
+      }
+    }
+
+    // Find earliest month across all deleted transactions
+    const sortedDates = rows.map((r) => r.date).sort();
+    const [ey, em] = sortedDates[0].split('-').map(Number);
+    const earliestMonth = `${ey}-${String(em).padStart(2, '0')}`;
+    const monthsToZero = getMonthRange(earliestMonth, lastZeroedMonth);
+
+    // Delete transactions
     for (let i = 0; i < rows.length; i++) {
       await actualApi.deleteTransaction(rows[i].id);
-      // Yield to the event loop every 50 deletes so liveness probes stay healthy
       if (i % 50 === 49) await new Promise((r) => setImmediate(r));
     }
+
+    // Zero out budget allocations for all months up through lastZeroedMonth
+    let opCount = 0;
+    for (const month of monthsToZero) {
+      for (const catId of allCategoryIds) {
+        await actualApi.setBudgetAmount(month, catId, 0);
+        opCount++;
+        if (opCount % 50 === 0) await new Promise((r) => setImmediate(r));
+      }
+    }
+
+    // Apply carry-forward adjustment to firstKeptMonth for non-income categories
+    for (const catId of Object.keys(carryForwards)) {
+      const carryForward = carryForwards[catId];
+      const deletedInMonth = deletedInFirstKept[catId] ?? 0;
+      const adjustment = carryForward + deletedInMonth; // deletedInMonth is negative for expenses
+      if (adjustment !== 0) {
+        const existingBudget = firstKeptBudgets[catId] ?? 0;
+        await actualApi.setBudgetAmount(firstKeptMonth, catId, existingBudget + adjustment);
+      }
+    }
+  } else if (!dryRun) {
+    // no-op: no transactions to prune
+  } else {
+    // dry run — nothing to do
   }
 
   return { deleted: rows.length, dryRun, sample };
+}
+
+function getMonthRange(start: string, end: string): string[] {
+  const months: string[] = [];
+  let [y, m] = start.split('-').map(Number);
+  const [ey, em] = end.split('-').map(Number);
+  while (y < ey || (y === ey && m <= em)) {
+    months.push(`${y}-${String(m).padStart(2, '0')}`);
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return months;
 }
 
 export function getRollingPruneCutoff(months: number): string {
