@@ -2,7 +2,7 @@ import type { Client, Interaction } from 'discord.js';
 import { updateProposalStatus } from '../db/proposals';
 import { setCategoryForTransaction } from '../actual/queries';
 import { withActual } from '../actual/client';
-import { postToThread } from './threads';
+import { postToThread, editMessage } from './threads';
 import { logger } from '../logger';
 import type Database from 'better-sqlite3';
 import type { SecretsConfig } from '../config';
@@ -42,11 +42,14 @@ export function registerInteractionHandler(
 
     await interaction.deferUpdate();
 
+    const originalContent = interaction.message.content;
+
     switch (interaction.customId) {
       case 'approve':
         try {
           await applyCategory(proposal.tx_id, proposal.category, actualConfig);
           updateProposalStatus(db, proposal.id, 'approved');
+          await editMessage(client, proposal.thread_id, messageId, `${originalContent}\n\n**Decision: ✅ Approved**`);
           await postToThread(client, proposal.thread_id, `✅ Categorized \`${proposal.tx_id}\` as **${proposal.category}**.`);
         } catch (err) {
           logger.error('applyCategory failed', { proposalId: proposal.id, err: String(err) });
@@ -55,10 +58,12 @@ export function registerInteractionHandler(
         break;
       case 'reject':
         updateProposalStatus(db, proposal.id, 'rejected');
+        await editMessage(client, proposal.thread_id, messageId, `${originalContent}\n\n**Decision: ❌ Rejected**`);
         await postToThread(client, proposal.thread_id, `❌ Proposal rejected for \`${proposal.tx_id}\`.`);
         break;
       case 'skip':
         updateProposalStatus(db, proposal.id, 'skipped');
+        await editMessage(client, proposal.thread_id, messageId, `${originalContent}\n\n**Decision: ⏭️ Skipped**`);
         break;
     }
   });
