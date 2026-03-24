@@ -156,7 +156,7 @@ export async function pruneTransactions(
     const lastZeroedMonth = `${lzDate.getFullYear()}-${String(lzDate.getMonth() + 1).padStart(2, '0')}`;
 
     // Capture carry-forward balances from lastZeroedMonth (before any changes)
-    const lastZeroedData = await actualApi.getBudgetMonth(lastZeroedMonth) as {
+    const lastZeroedData = await actualApi.getBudgetMonth(lastZeroedMonth) as unknown as {
       categoryGroups: Array<{ is_income?: boolean; categories: Array<{ id: string; balance: number; budgeted: number }> }>;
     };
     const carryForwards: Record<string, number> = {};   // non-income only
@@ -169,7 +169,7 @@ export async function pruneTransactions(
     }
 
     // Capture existing budget amounts for firstKeptMonth (before any changes)
-    const firstKeptData = await actualApi.getBudgetMonth(firstKeptMonth) as {
+    const firstKeptData = await actualApi.getBudgetMonth(firstKeptMonth) as unknown as {
       categoryGroups: Array<{ categories: Array<{ id: string; budgeted: number }> }>;
     };
     const firstKeptBudgets: Record<string, number> = {};
