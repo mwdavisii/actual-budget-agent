@@ -30,6 +30,7 @@ export async function withActual<T>(
     if (!initialized) {
       const syncDir = path.join(dataDir, 'actual-sync');
       fs.mkdirSync(syncDir, { recursive: true });
+      process.env.ACTUAL_DATA_DIR = syncDir;
       await actualApi.init({
         dataDir: syncDir,
         serverURL: serverUrl,
