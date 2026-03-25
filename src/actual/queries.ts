@@ -6,6 +6,7 @@ import {
   insertCleanupState,
   updateCleanupPhase,
   deleteOldCompletedStates,
+  deleteCleanupState,
   type CleanupState,
   type CleanupPhase,
 } from '../db/cleanup';
@@ -147,7 +148,8 @@ export async function allocateBudget(month: string, categoryId: string, amount: 
 export async function pruneTransactions(
   before: string,
   dryRun: boolean,
-  db?: Database.Database
+  db?: Database.Database,
+  clearState?: boolean
 ): Promise<{ deleted: number; dryRun: boolean; sample: string[] }> {
   const result = await actualApi.runQuery(
     actualApi.q('transactions')
@@ -171,6 +173,14 @@ export async function pruneTransactions(
   if (!db) throw new Error('db is required for non-dry-run prune');
 
   deleteOldCompletedStates(db);
+
+  if (clearState) {
+    const existing = getIncompleteCleanup(db);
+    if (existing) {
+      logger.info('Clearing incomplete cleanup state', { cutoff_date: existing.cutoffDate });
+      deleteCleanupState(db, existing.cutoffDate);
+    }
+  }
 
   let state = getIncompleteCleanup(db);
 

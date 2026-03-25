@@ -555,6 +555,120 @@ describe('pruneTransactions — phased', () => {
     expect(actualApi.setBudgetAmount).toHaveBeenCalledWith('2024-03', 'cat2', 0);
   });
 
+  it('resumes from interrupted phase (skips completed phases)', async () => {
+    const db = makeDb();
+    const { insertCleanupState } = await import('../../../src/db/cleanup');
+
+    // State stuck at 'adjustments' — Phases 0 and 1 (delete) already done
+    insertCleanupState(db, {
+      cutoffDate: '2024-04-01',
+      accountAdjustments: { acc1: -5000 },
+      categoryCarryForwards: { cat1: 50000 },
+      firstKeptBudgets: { cat1: 12000 },
+      transactionIds: ['tx1'],
+      earliestBudgetMonth: '2024-01',
+      phase: 'adjustments',
+    });
+
+    vi.mocked(actualApi.runQuery).mockResolvedValue({ data: [] } as any);
+    vi.mocked(actualApi.addTransactions).mockResolvedValue([] as any);
+    vi.mocked(actualApi.getBudgetMonth).mockResolvedValue({ categoryGroups: [] } as any);
+    vi.mocked(actualApi.getAccounts).mockResolvedValue([] as any);
+
+    await pruneTransactions('2024-04-01', false, db);
+
+    // deleteTransaction should NOT be called — Phase 1 was already done
+    expect(actualApi.deleteTransaction).not.toHaveBeenCalled();
+    // But Phase 2 (adjustments) should run
+    expect(actualApi.addTransactions).toHaveBeenCalled();
+  });
+
+  it('rejects mismatched cutoff when incomplete cleanup exists', async () => {
+    const db = makeDb();
+    const { insertCleanupState } = await import('../../../src/db/cleanup');
+    insertCleanupState(db, {
+      cutoffDate: '2024-04-01',
+      accountAdjustments: {},
+      categoryCarryForwards: {},
+      firstKeptBudgets: {},
+      transactionIds: [],
+      earliestBudgetMonth: '2022-01',
+      phase: 'deleting',
+    });
+
+    vi.mocked(actualApi.runQuery).mockResolvedValue({ data: [{ id: 'tx1', date: '2024-01-01', payee: 'X', amount: -100, category: 'c1', account: 'a1' }] } as any);
+
+    await expect(pruneTransactions('2025-01-01', false, db)).rejects.toThrow(/incomplete/);
+  });
+
+  it('clear_state abandons incomplete cleanup and starts fresh', async () => {
+    const db = makeDb();
+    const { insertCleanupState, getIncompleteCleanup } = await import('../../../src/db/cleanup');
+    insertCleanupState(db, {
+      cutoffDate: '2024-04-01',
+      accountAdjustments: {},
+      categoryCarryForwards: {},
+      firstKeptBudgets: {},
+      transactionIds: [],
+      earliestBudgetMonth: '2022-01',
+      phase: 'deleting',
+    });
+
+    vi.mocked(actualApi.runQuery).mockResolvedValue({ data: [] } as any);
+    vi.mocked(actualApi.getAccounts).mockResolvedValue([] as any);
+    vi.mocked(actualApi.getBudgetMonth).mockResolvedValue({ categoryGroups: [] } as any);
+
+    // Clear state and run with different cutoff — no error
+    await pruneTransactions('2025-01-01', false, db, true);
+
+    // Old state should be gone
+    const state = getIncompleteCleanup(db);
+    expect(state === null || state.cutoffDate === '2025-01-01').toBe(true);
+  });
+
+  it('Phase 0: excludes off-budget transactions from account_adjustments but includes in transactionIds', async () => {
+    const db = makeDb();
+
+    vi.mocked(actualApi.runQuery).mockResolvedValue({
+      data: [
+        { id: 'tx1', date: '2024-01-15', payee: 'Store', amount: -5000, category: 'cat1', account: 'acc1' },
+        { id: 'tx-offbudget', date: '2024-02-10', payee: 'Home Value', amount: 100000, category: null, account: 'acc-offbudget' },
+      ],
+    } as any);
+
+    vi.mocked(actualApi.getBudgetMonth).mockResolvedValue({
+      categoryGroups: [{ is_income: false, categories: [{ id: 'cat1', balance: 50000, budgeted: 10000 }] }],
+    } as any);
+
+    vi.mocked(actualApi.getAccounts).mockResolvedValue([
+      { id: 'acc1', name: 'Checking', closed: false, offbudget: false },
+      { id: 'acc-offbudget', name: 'Home Equity', closed: false, offbudget: true },
+    ] as any);
+
+    await pruneTransactions('2024-04-01', false, db);
+
+    // Query raw DB since phases run to completion
+    const row = db.prepare('SELECT * FROM cleanup_state WHERE cutoff_date = ?').get('2024-04-01') as Record<string, string>;
+    expect(JSON.parse(row['transaction_ids'])).toEqual(['tx1', 'tx-offbudget']); // both included
+    expect(JSON.parse(row['account_adjustments'])).toEqual({ acc1: -5000 }); // off-budget excluded
+  });
+
+  it('full cleanup is idempotent — running twice with same cutoff returns without error', async () => {
+    const db = makeDb();
+
+    vi.mocked(actualApi.runQuery).mockResolvedValue({ data: [] } as any);
+    vi.mocked(actualApi.getAccounts).mockResolvedValue([] as any);
+    vi.mocked(actualApi.getBudgetMonth).mockResolvedValue({ categoryGroups: [] } as any);
+
+    // First run: no transactions, no incomplete state — returns early
+    const result1 = await pruneTransactions('2024-04-01', false, db);
+    expect(result1.deleted).toBe(0);
+
+    // Second run: same thing — no error
+    const result2 = await pruneTransactions('2024-04-01', false, db);
+    expect(result2.deleted).toBe(0);
+  });
+
   it('dry run returns preview without persisting state', async () => {
     const db = makeDb();
     vi.mocked(actualApi.runQuery).mockResolvedValue({
