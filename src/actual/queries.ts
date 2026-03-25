@@ -341,8 +341,35 @@ async function executePhaseBudgets(state: CleanupState): Promise<void> {
 
 async function executePhaseZero(state: CleanupState): Promise<void> {
   logger.info('Cleanup phase started', { phase: 'zeroed', cutoff_date: state.cutoffDate });
-  // TODO: Task 8
-  logger.info('Cleanup phase complete', { phase: 'zeroed', cutoff_date: state.cutoffDate });
+
+  const [byear, bmonth] = state.cutoffDate.split('-').map(Number);
+  const lastZeroedYear = bmonth === 1 ? byear - 1 : byear;
+  const lastZeroedMonthNum = bmonth === 1 ? 12 : bmonth - 1;
+  const lastZeroedMonth = `${lastZeroedYear}-${String(lastZeroedMonthNum).padStart(2, '0')}`;
+
+  let [y, m] = state.earliestBudgetMonth.split('-').map(Number);
+  const [ey, em] = lastZeroedMonth.split('-').map(Number);
+  let totalOps = 0;
+
+  while (y < ey || (y === ey && m <= em)) {
+    const month = `${y}-${String(m).padStart(2, '0')}`;
+    const data = await actualApi.getBudgetMonth(month) as unknown as {
+      categoryGroups: Array<{ categories: Array<{ id: string; budgeted: number }> }>;
+    };
+    for (const group of data.categoryGroups) {
+      for (const cat of group.categories) {
+        if (Number(cat.budgeted) !== 0) {
+          await actualApi.setBudgetAmount(month, cat.id, 0);
+          totalOps++;
+          if (totalOps % 500 === 0) logger.info('Zero progress', { count: totalOps });
+          await new Promise((r) => setImmediate(r));
+        }
+      }
+    }
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  logger.info('Cleanup phase complete', { phase: 'zeroed', cutoff_date: state.cutoffDate, ops_count: totalOps });
 }
 
 export function getRollingPruneCutoff(months: number): string {

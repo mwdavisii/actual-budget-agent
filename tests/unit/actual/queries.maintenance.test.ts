@@ -515,6 +515,46 @@ describe('pruneTransactions — phased', () => {
     expect(actualApi.setBudgetAmount).toHaveBeenCalledWith('2024-04', 'cat2', 3000);  // 6000 + (-3000)
   });
 
+  it('Phase 4: zeros only non-zero budget entries', async () => {
+    const db = makeDb();
+    const { insertCleanupState } = await import('../../../src/db/cleanup');
+    insertCleanupState(db, {
+      cutoffDate: '2024-04-01',
+      accountAdjustments: {},
+      categoryCarryForwards: {},
+      firstKeptBudgets: {},
+      transactionIds: [],
+      earliestBudgetMonth: '2024-01',
+      phase: 'zeroed',
+    });
+
+    vi.mocked(actualApi.runQuery).mockResolvedValue({ data: [] } as any);
+    vi.mocked(actualApi.getAccounts).mockResolvedValue([] as any);
+
+    // 3 months to zero: 2024-01, 2024-02, 2024-03
+    vi.mocked(actualApi.getBudgetMonth).mockImplementation(async (month: string) => {
+      if (month === '2024-01') return {
+        categoryGroups: [{ categories: [{ id: 'cat1', budgeted: 10000 }, { id: 'cat2', budgeted: 0 }] }],
+      } as any;
+      if (month === '2024-02') return {
+        categoryGroups: [{ categories: [{ id: 'cat1', budgeted: 0 }, { id: 'cat2', budgeted: 5000 }] }],
+      } as any;
+      if (month === '2024-03') return {
+        categoryGroups: [{ categories: [{ id: 'cat1', budgeted: 10000 }, { id: 'cat2', budgeted: 5000 }] }],
+      } as any;
+      return { categoryGroups: [] } as any;
+    });
+
+    await pruneTransactions('2024-04-01', false, db);
+
+    // cat2 in 2024-01 is already 0 → skipped. Only 4 calls, not 6.
+    expect(actualApi.setBudgetAmount).toHaveBeenCalledTimes(4);
+    expect(actualApi.setBudgetAmount).toHaveBeenCalledWith('2024-01', 'cat1', 0);
+    expect(actualApi.setBudgetAmount).toHaveBeenCalledWith('2024-02', 'cat2', 0);
+    expect(actualApi.setBudgetAmount).toHaveBeenCalledWith('2024-03', 'cat1', 0);
+    expect(actualApi.setBudgetAmount).toHaveBeenCalledWith('2024-03', 'cat2', 0);
+  });
+
   it('dry run returns preview without persisting state', async () => {
     const db = makeDb();
     vi.mocked(actualApi.runQuery).mockResolvedValue({
