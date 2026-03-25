@@ -18,7 +18,7 @@ vi.mock('../../../src/actual/client', () => ({
 }));
 
 vi.mock('../../../src/actual/queries', () => ({
-  getRollingPruneCutoff: vi.fn(() => '2024-03-22'),
+  getRollingPruneCutoff: vi.fn(() => '2024-04-01'),
   pruneTransactions: vi.fn(),
   cleanupHiddenCategories: vi.fn(),
   cleanupClosedAccounts: vi.fn(),
@@ -77,7 +77,7 @@ describe('executeTool — cleanup_budget', () => {
     expect(result.categories.count).toBe(2);
     expect(result.accounts.count).toBe(1);
     expect(result.warnings).toHaveLength(0);
-    expect(pruneTransactions).toHaveBeenCalledWith('2024-03-22', true);
+    expect(pruneTransactions).toHaveBeenCalledWith('2024-04-01', true, undefined, false);
     expect(cleanupHiddenCategories).toHaveBeenCalledWith(true);
     expect(cleanupClosedAccounts).toHaveBeenCalledWith(true);
   });
@@ -89,6 +89,17 @@ describe('executeTool — cleanup_budget', () => {
 
     const result = await executeTool('cleanup_budget', { months: 24 }, actualConfig, makeDb(), noop) as any;
     expect(result.dryRun).toBe(true);
+  });
+
+  it('passes clear_state and db to pruneTransactions for non-dry-run', async () => {
+    vi.mocked(pruneTransactions).mockResolvedValue({ deleted: 50, dryRun: false, sample: [] });
+    vi.mocked(cleanupHiddenCategories).mockResolvedValue({ deleted: 0, names: [], warnings: [] });
+    vi.mocked(cleanupClosedAccounts).mockResolvedValue({ deleted: 0, names: [], warnings: [] });
+
+    const db = makeDb();
+    await executeTool('cleanup_budget', { months: 24, dry_run: false, clear_state: true }, actualConfig, db, noop);
+
+    expect(pruneTransactions).toHaveBeenCalledWith('2024-04-01', false, db, true);
   });
 
   it('merges warnings from all phases and continues on phase-level failure', async () => {
