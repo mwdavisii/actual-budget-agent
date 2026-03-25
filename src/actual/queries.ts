@@ -193,19 +193,17 @@ export async function pruneTransactions(
     const earliestMonth = `${ey}-${String(em).padStart(2, '0')}`;
     const monthsToZero = getMonthRange(earliestMonth, lastZeroedMonth);
 
-    // Delete transactions — yield every 10 ops with a 50ms sleep to keep liveness probes happy
+    // Delete transactions — yield after every op so the HTTP server stays responsive
     for (let i = 0; i < rows.length; i++) {
       await actualApi.deleteTransaction(rows[i].id);
-      if (i % 10 === 9) await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setImmediate(r));
     }
 
     // Zero out budget allocations for all months up through lastZeroedMonth
-    let opCount = 0;
     for (const month of monthsToZero) {
       for (const catId of allCategoryIds) {
         await actualApi.setBudgetAmount(month, catId, 0);
-        opCount++;
-        if (opCount % 10 === 0) await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setImmediate(r));
       }
     }
 
