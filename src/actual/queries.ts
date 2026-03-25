@@ -164,7 +164,7 @@ export async function pruneTransactions(
     (r) => `${r.date} ${r.payee ?? '(no payee)'} $${(r.amount / 100).toFixed(2)}`
   );
 
-  if (dryRun || rows.length === 0) {
+  if (dryRun) {
     return { deleted: rows.length, dryRun, sample };
   }
 
@@ -173,6 +173,11 @@ export async function pruneTransactions(
   deleteOldCompletedStates(db);
 
   let state = getIncompleteCleanup(db);
+
+  // No transactions and no incomplete state — nothing to do
+  if (rows.length === 0 && !state) {
+    return { deleted: 0, dryRun: false, sample };
+  }
   if (state && state.cutoffDate !== before) {
     throw new Error(
       `A cleanup for cutoff ${state.cutoffDate} is incomplete (phase: ${state.phase}). ` +
