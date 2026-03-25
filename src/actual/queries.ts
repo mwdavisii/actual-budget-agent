@@ -277,8 +277,18 @@ export async function pruneTransactions(
 
 async function executePhaseDelete(state: CleanupState): Promise<void> {
   logger.info('Cleanup phase started', { phase: 'deleting', cutoff_date: state.cutoffDate });
-  // TODO: Task 5
-  logger.info('Cleanup phase complete', { phase: 'deleting', cutoff_date: state.cutoffDate, ops_count: state.transactionIds.length });
+  let count = 0;
+  for (const id of state.transactionIds) {
+    try {
+      await actualApi.deleteTransaction(id);
+    } catch (err) {
+      logger.warn('Transaction delete skipped', { id, error: String(err) });
+    }
+    count++;
+    if (count % 500 === 0) logger.info('Delete progress', { count, total: state.transactionIds.length });
+    await new Promise((r) => setImmediate(r));
+  }
+  logger.info('Cleanup phase complete', { phase: 'deleting', cutoff_date: state.cutoffDate, ops_count: count });
 }
 
 async function executePhaseAdjustments(state: CleanupState): Promise<void> {

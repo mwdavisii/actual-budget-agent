@@ -416,6 +416,40 @@ describe('pruneTransactions — phased', () => {
     expect(row!['phase']).toBe('complete');
   });
 
+  it('Phase 1: deletes transactions and handles not-found gracefully', async () => {
+    const db = makeDb();
+    const { insertCleanupState } = await import('../../../src/db/cleanup');
+    insertCleanupState(db, {
+      cutoffDate: '2024-04-01',
+      accountAdjustments: { acc1: -5000 },
+      categoryCarryForwards: { cat1: 50000 },
+      firstKeptBudgets: { cat1: 12000 },
+      transactionIds: ['tx1', 'tx2', 'tx3'],
+      earliestBudgetMonth: '2022-01',
+      phase: 'pending',
+    });
+
+    vi.mocked(actualApi.deleteTransaction)
+      .mockResolvedValueOnce(undefined as any)
+      .mockRejectedValueOnce(new Error('transaction not found'))
+      .mockResolvedValueOnce(undefined as any);
+
+    vi.mocked(actualApi.runQuery).mockResolvedValue({
+      data: [
+        { id: 'tx1', date: '2024-01-15', payee: 'Store', amount: -5000, category: 'cat1', account: 'acc1' },
+      ],
+    } as any);
+    vi.mocked(actualApi.getBudgetMonth).mockResolvedValue({ categoryGroups: [] } as any);
+    vi.mocked(actualApi.getAccounts).mockResolvedValue([] as any);
+
+    await pruneTransactions('2024-04-01', false, db);
+
+    expect(actualApi.deleteTransaction).toHaveBeenCalledTimes(3);
+    expect(actualApi.deleteTransaction).toHaveBeenCalledWith('tx1');
+    expect(actualApi.deleteTransaction).toHaveBeenCalledWith('tx2');
+    expect(actualApi.deleteTransaction).toHaveBeenCalledWith('tx3');
+  });
+
   it('dry run returns preview without persisting state', async () => {
     const db = makeDb();
     vi.mocked(actualApi.runQuery).mockResolvedValue({
