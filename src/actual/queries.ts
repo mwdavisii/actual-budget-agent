@@ -298,8 +298,29 @@ async function executePhaseDelete(state: CleanupState): Promise<void> {
 
 async function executePhaseAdjustments(state: CleanupState): Promise<void> {
   logger.info('Cleanup phase started', { phase: 'adjustments', cutoff_date: state.cutoffDate });
-  // TODO: Task 6
-  logger.info('Cleanup phase complete', { phase: 'adjustments', cutoff_date: state.cutoffDate, ops_count: Object.keys(state.accountAdjustments).length });
+  let created = 0;
+  for (const [accountId, amount] of Object.entries(state.accountAdjustments)) {
+    const marker = `cleanup:${state.cutoffDate}:${accountId}`;
+    const existing = await actualApi.runQuery(
+      actualApi.q('transactions')
+        .filter({ account: accountId, date: state.cutoffDate, notes: { $like: `%${marker}%` } })
+        .options({ splits: 'none' })
+        .select(['id'])
+    );
+    if ((existing as { data: unknown[] }).data.length > 0) {
+      logger.info('Adjustment transaction already exists, skipping', { accountId });
+      continue;
+    }
+    await actualApi.addTransactions(accountId, [{
+      date: state.cutoffDate,
+      amount,
+      payee_name: 'Prior Balance',
+      notes: marker,
+    }]);
+    created++;
+    await new Promise((r) => setImmediate(r));
+  }
+  logger.info('Cleanup phase complete', { phase: 'adjustments', cutoff_date: state.cutoffDate, ops_count: created });
 }
 
 async function executePhaseBudgets(state: CleanupState): Promise<void> {

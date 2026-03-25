@@ -450,6 +450,48 @@ describe('pruneTransactions — phased', () => {
     expect(actualApi.deleteTransaction).toHaveBeenCalledWith('tx3');
   });
 
+  it('Phase 2: creates adjustment transactions per account, skips existing', async () => {
+    const db = makeDb();
+    const { insertCleanupState, updateCleanupPhase } = await import('../../../src/db/cleanup');
+    insertCleanupState(db, {
+      cutoffDate: '2024-04-01',
+      accountAdjustments: { acc1: -8000, acc2: 15000 },
+      categoryCarryForwards: {},
+      firstKeptBudgets: {},
+      transactionIds: [],
+      earliestBudgetMonth: '2022-01',
+      phase: 'deleting',
+    });
+    updateCleanupPhase(db, '2024-04-01', 'adjustments');
+
+    // Mock runQuery: argument-based dispatch to avoid fragile ordering
+    let runQueryCallCount = 0;
+    vi.mocked(actualApi.runQuery).mockImplementation(async () => {
+      runQueryCallCount++;
+      if (runQueryCallCount === 1) return { data: [] } as any; // initial transaction query (0 rows)
+      if (runQueryCallCount === 2) return { data: [] } as any; // acc1 check — not found
+      if (runQueryCallCount === 3) return { data: [{ id: 'existing' }] } as any; // acc2 check — already exists
+      return { data: [] } as any;
+    });
+
+    vi.mocked(actualApi.addTransactions).mockResolvedValue([] as any);
+    vi.mocked(actualApi.getBudgetMonth).mockResolvedValue({ categoryGroups: [] } as any);
+    vi.mocked(actualApi.getAccounts).mockResolvedValue([] as any);
+
+    await pruneTransactions('2024-04-01', false, db);
+
+    // Only acc1 should get a new transaction
+    expect(actualApi.addTransactions).toHaveBeenCalledTimes(1);
+    expect(actualApi.addTransactions).toHaveBeenCalledWith('acc1', [
+      expect.objectContaining({
+        date: '2024-04-01',
+        amount: -8000,
+        payee_name: 'Prior Balance',
+        notes: expect.stringContaining('cleanup:2024-04-01:acc1'),
+      }),
+    ]);
+  });
+
   it('dry run returns preview without persisting state', async () => {
     const db = makeDb();
     vi.mocked(actualApi.runQuery).mockResolvedValue({
