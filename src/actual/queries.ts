@@ -193,10 +193,10 @@ export async function pruneTransactions(
     const earliestMonth = `${ey}-${String(em).padStart(2, '0')}`;
     const monthsToZero = getMonthRange(earliestMonth, lastZeroedMonth);
 
-    // Delete transactions
+    // Delete transactions — yield every 10 ops with a 50ms sleep to keep liveness probes happy
     for (let i = 0; i < rows.length; i++) {
       await actualApi.deleteTransaction(rows[i].id);
-      if (i % 50 === 49) await new Promise((r) => setImmediate(r));
+      if (i % 10 === 9) await new Promise((r) => setTimeout(r, 50));
     }
 
     // Zero out budget allocations for all months up through lastZeroedMonth
@@ -205,7 +205,7 @@ export async function pruneTransactions(
       for (const catId of allCategoryIds) {
         await actualApi.setBudgetAmount(month, catId, 0);
         opCount++;
-        if (opCount % 50 === 0) await new Promise((r) => setImmediate(r));
+        if (opCount % 10 === 0) await new Promise((r) => setTimeout(r, 50));
       }
     }
 
@@ -254,7 +254,7 @@ export function getRollingPruneCutoff(months: number): string {
   return `${year}-${month}-${dayStr}`;
 }
 
-export async function cleanupHiddenCategories(dryRun: boolean): Promise<{
+export async function cleanupHiddenCategories(dryRun: boolean, afterDate?: string): Promise<{
   deleted: number; names: string[]; warnings: string[];
 }> {
   const groups = await actualApi.getCategoryGroups() as Array<{
@@ -269,8 +269,11 @@ export async function cleanupHiddenCategories(dryRun: boolean): Promise<{
   for (const group of groups) {
     for (const cat of group.categories) {
       if (!cat.hidden) continue;
+      const filter = afterDate
+        ? { category: cat.id, date: { $gte: afterDate } }
+        : { category: cat.id };
       const result = await actualApi.runQuery(
-        actualApi.q('transactions').filter({ category: cat.id }).options({ splits: 'none' }).select(['id'])
+        actualApi.q('transactions').filter(filter).options({ splits: 'none' }).select(['id'])
       );
       if ((result as { data: unknown[] }).data.length > 0) continue;
       if (!dryRun) {
@@ -304,7 +307,7 @@ export async function cleanupHiddenCategories(dryRun: boolean): Promise<{
   return { deleted: deletedNames.length, names: deletedNames.slice(0, 20), warnings };
 }
 
-export async function cleanupClosedAccounts(dryRun: boolean): Promise<{
+export async function cleanupClosedAccounts(dryRun: boolean, afterDate?: string): Promise<{
   deleted: number; names: string[]; warnings: string[];
 }> {
   const accounts = await actualApi.getAccounts() as Array<{ id: string; name: string; closed: boolean }>;
@@ -314,8 +317,11 @@ export async function cleanupClosedAccounts(dryRun: boolean): Promise<{
   const warnings: string[] = [];
 
   for (const account of closed) {
+    const filter = afterDate
+      ? { account: account.id, date: { $gte: afterDate } }
+      : { account: account.id };
     const result = await actualApi.runQuery(
-      actualApi.q('transactions').filter({ account: account.id }).options({ splits: 'none' }).select(['id'])
+      actualApi.q('transactions').filter(filter).options({ splits: 'none' }).select(['id'])
     );
     if ((result as { data: unknown[] }).data.length > 0) continue;
     if (!dryRun) {
