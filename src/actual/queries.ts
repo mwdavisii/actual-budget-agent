@@ -325,8 +325,18 @@ async function executePhaseAdjustments(state: CleanupState): Promise<void> {
 
 async function executePhaseBudgets(state: CleanupState): Promise<void> {
   logger.info('Cleanup phase started', { phase: 'budgets', cutoff_date: state.cutoffDate });
-  // TODO: Task 7
-  logger.info('Cleanup phase complete', { phase: 'budgets', cutoff_date: state.cutoffDate, ops_count: Object.keys(state.categoryCarryForwards).length });
+  const [byear, bmonth] = state.cutoffDate.split('-').map(Number);
+  const firstKeptMonth = `${byear}-${String(bmonth).padStart(2, '0')}`;
+
+  let count = 0;
+  for (const [catId, carryForward] of Object.entries(state.categoryCarryForwards)) {
+    const existing = state.firstKeptBudgets[catId] ?? 0;
+    const target = existing + carryForward;
+    await actualApi.setBudgetAmount(firstKeptMonth, catId, target);
+    count++;
+    await new Promise((r) => setImmediate(r));
+  }
+  logger.info('Cleanup phase complete', { phase: 'budgets', cutoff_date: state.cutoffDate, ops_count: count });
 }
 
 async function executePhaseZero(state: CleanupState): Promise<void> {

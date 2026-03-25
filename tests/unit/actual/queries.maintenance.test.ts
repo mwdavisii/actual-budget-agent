@@ -492,6 +492,29 @@ describe('pruneTransactions — phased', () => {
     ]);
   });
 
+  it('Phase 3: sets firstKeptMonth budget = existing + carry-forward', async () => {
+    const db = makeDb();
+    const { insertCleanupState, updateCleanupPhase } = await import('../../../src/db/cleanup');
+    insertCleanupState(db, {
+      cutoffDate: '2024-04-01',
+      accountAdjustments: {},
+      categoryCarryForwards: { cat1: 50000, cat2: -3000 },
+      firstKeptBudgets: { cat1: 12000, cat2: 6000 },
+      transactionIds: [],
+      earliestBudgetMonth: '2022-01',
+      phase: 'budgets',
+    });
+
+    vi.mocked(actualApi.runQuery).mockResolvedValue({ data: [] } as any);
+    vi.mocked(actualApi.getBudgetMonth).mockResolvedValue({ categoryGroups: [] } as any);
+    vi.mocked(actualApi.getAccounts).mockResolvedValue([] as any);
+
+    await pruneTransactions('2024-04-01', false, db);
+
+    expect(actualApi.setBudgetAmount).toHaveBeenCalledWith('2024-04', 'cat1', 62000); // 12000 + 50000
+    expect(actualApi.setBudgetAmount).toHaveBeenCalledWith('2024-04', 'cat2', 3000);  // 6000 + (-3000)
+  });
+
   it('dry run returns preview without persisting state', async () => {
     const db = makeDb();
     vi.mocked(actualApi.runQuery).mockResolvedValue({
