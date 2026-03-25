@@ -242,16 +242,11 @@ function getMonthRange(start: string, end: string): string[] {
 
 export function getRollingPruneCutoff(months: number): string {
   const d = new Date();
-  const day = d.getDate();
-  d.setDate(1); // Anchor to 1st before subtracting months to prevent overflow
-  d.setMonth(d.getMonth() - months);
-  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-  d.setDate(Math.min(day, lastDay));
-  // Format as YYYY-MM-DD using local date parts
+  d.setDate(1);
+  d.setMonth(d.getMonth() - months + 1);
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
-  const dayStr = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${dayStr}`;
+  return `${year}-${month}-01`;
 }
 
 export async function cleanupHiddenCategories(dryRun: boolean): Promise<{

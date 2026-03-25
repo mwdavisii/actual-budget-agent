@@ -31,21 +31,19 @@ describe('getRollingPruneCutoff', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('returns a date string 24 months in the past', () => {
-    vi.setSystemTime(new Date(2026, 2, 22)); // local time — avoids UTC-offset ambiguity
-    expect(getRollingPruneCutoff(24)).toBe('2024-03-22');
+  it('returns the 1st of the month N months ago', () => {
+    vi.setSystemTime(new Date(2026, 2, 25)); // March 25, 2026
+    expect(getRollingPruneCutoff(24)).toBe('2024-04-01');
   });
 
-  it('clamps to last day of month when target month is shorter', () => {
-    // March 31 minus 1 month = February 28 (not March 3)
-    vi.setSystemTime(new Date(2026, 2, 31));
-    expect(getRollingPruneCutoff(1)).toBe('2026-02-28');
+  it('snaps to 1st even on the 1st', () => {
+    vi.setSystemTime(new Date(2026, 2, 1)); // March 1, 2026
+    expect(getRollingPruneCutoff(24)).toBe('2024-04-01');
   });
 
-  it('handles leap year February correctly', () => {
-    // March 31 2024 minus 1 month = February 29 2024 (leap year)
-    vi.setSystemTime(new Date(2024, 2, 31));
-    expect(getRollingPruneCutoff(1)).toBe('2024-02-29');
+  it('handles year boundary', () => {
+    vi.setSystemTime(new Date(2026, 0, 15)); // Jan 15, 2026
+    expect(getRollingPruneCutoff(3)).toBe('2025-11-01');
   });
 });
 
