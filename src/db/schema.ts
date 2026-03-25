@@ -28,6 +28,17 @@ const DDL_STATEMENTS = [
     target_amount INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   )`,
+  `CREATE TABLE IF NOT EXISTS cleanup_state (
+    cutoff_date TEXT PRIMARY KEY,
+    account_adjustments TEXT NOT NULL,
+    category_carry_forwards TEXT NOT NULL,
+    first_kept_budgets TEXT NOT NULL,
+    transaction_ids TEXT NOT NULL,
+    earliest_budget_month TEXT NOT NULL,
+    phase TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
 ];
 
 export function runMigrations(db: Database.Database): void {

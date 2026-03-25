@@ -160,6 +160,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           type: 'boolean',
           description: 'If true (default), returns a preview without deleting anything.',
         },
+        clear_state: {
+          type: 'boolean',
+          description: 'If true, abandons any incomplete cleanup state and starts fresh.',
+        },
       },
       required: ['months'],
     },
@@ -270,6 +274,7 @@ export async function executeTool(
     case 'cleanup_budget': {
       const months = Number(input['months']);
       const dryRun = input['dry_run'] !== false; // defaults to true
+      const clearState = input['clear_state'] === true;
       if (!Number.isFinite(months) || months < 3) return { error: 'months must be >= 3 to prevent accidental data loss' };
 
       const warnings: string[] = [];
@@ -280,20 +285,20 @@ export async function executeTool(
       const cutoff = getRollingPruneCutoff(months);
       return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
         try {
-          const pruneResult = await pruneTransactions(cutoff, dryRun);
+          const pruneResult = await pruneTransactions(cutoff, dryRun, dryRun ? undefined : db, clearState);
           transactions = { count: pruneResult.deleted, sample: pruneResult.sample };
         } catch (err) {
           warnings.push(`Transaction prune failed: ${String(err)}`);
         }
         try {
-          const catResult = await cleanupHiddenCategories(dryRun, cutoff);
+          const catResult = await cleanupHiddenCategories(dryRun);
           categories = { count: catResult.deleted, names: catResult.names };
           warnings.push(...catResult.warnings);
         } catch (err) {
           warnings.push(`Category cleanup failed: ${String(err)}`);
         }
         try {
-          const accResult = await cleanupClosedAccounts(dryRun, cutoff);
+          const accResult = await cleanupClosedAccounts(dryRun);
           accounts = { count: accResult.deleted, names: accResult.names };
           warnings.push(...accResult.warnings);
         } catch (err) {
