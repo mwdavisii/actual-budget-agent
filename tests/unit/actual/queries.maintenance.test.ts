@@ -102,6 +102,38 @@ describe('cleanupHiddenCategories', () => {
     expect(result.deleted).toBe(0);
   });
 
+  it('with afterDate: deletes category whose only transactions are before the cutoff', async () => {
+    vi.mocked(actualApi.getCategoryGroups).mockResolvedValue([
+      {
+        id: 'g1', name: 'Group', hidden: false,
+        categories: [{ id: 'c1', name: 'Old Only', hidden: true }],
+      },
+    ] as any);
+    // No transactions on or after the cutoff date
+    vi.mocked(actualApi.runQuery).mockResolvedValue({ data: [] } as any);
+
+    const result = await cleanupHiddenCategories(false, '2024-01-01');
+
+    expect(actualApi.deleteCategory).toHaveBeenCalledWith('c1');
+    expect(result.deleted).toBe(1);
+  });
+
+  it('with afterDate: skips category that still has transactions after cutoff', async () => {
+    vi.mocked(actualApi.getCategoryGroups).mockResolvedValue([
+      {
+        id: 'g1', name: 'Group', hidden: false,
+        categories: [{ id: 'c1', name: 'Has Recent', hidden: true }],
+      },
+    ] as any);
+    // Has a transaction on or after the cutoff
+    vi.mocked(actualApi.runQuery).mockResolvedValue({ data: [{ id: 'tx1' }] } as any);
+
+    const result = await cleanupHiddenCategories(false, '2024-01-01');
+
+    expect(actualApi.deleteCategory).not.toHaveBeenCalled();
+    expect(result.deleted).toBe(0);
+  });
+
   it('deletes a hidden group that is already empty (no categories)', async () => {
     vi.mocked(actualApi.getCategoryGroups).mockResolvedValue([
       { id: 'g1', name: 'Ghost Group', hidden: true, categories: [] },

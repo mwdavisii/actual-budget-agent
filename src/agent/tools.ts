@@ -277,23 +277,23 @@ export async function executeTool(
       let categories = { count: 0, names: [] as string[] };
       let accounts = { count: 0, names: [] as string[] };
 
+      const cutoff = getRollingPruneCutoff(months);
       return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
         try {
-          const cutoff = getRollingPruneCutoff(months);
           const pruneResult = await pruneTransactions(cutoff, dryRun);
           transactions = { count: pruneResult.deleted, sample: pruneResult.sample };
         } catch (err) {
           warnings.push(`Transaction prune failed: ${String(err)}`);
         }
         try {
-          const catResult = await cleanupHiddenCategories(dryRun);
+          const catResult = await cleanupHiddenCategories(dryRun, cutoff);
           categories = { count: catResult.deleted, names: catResult.names };
           warnings.push(...catResult.warnings);
         } catch (err) {
           warnings.push(`Category cleanup failed: ${String(err)}`);
         }
         try {
-          const accResult = await cleanupClosedAccounts(dryRun);
+          const accResult = await cleanupClosedAccounts(dryRun, cutoff);
           accounts = { count: accResult.deleted, names: accResult.names };
           warnings.push(...accResult.warnings);
         } catch (err) {

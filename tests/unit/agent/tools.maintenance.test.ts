@@ -78,8 +78,8 @@ describe('executeTool — cleanup_budget', () => {
     expect(result.accounts.count).toBe(1);
     expect(result.warnings).toHaveLength(0);
     expect(pruneTransactions).toHaveBeenCalledWith('2024-03-22', true);
-    expect(cleanupHiddenCategories).toHaveBeenCalledWith(true);
-    expect(cleanupClosedAccounts).toHaveBeenCalledWith(true);
+    expect(cleanupHiddenCategories).toHaveBeenCalledWith(true, '2024-03-22');
+    expect(cleanupClosedAccounts).toHaveBeenCalledWith(true, '2024-03-22');
   });
 
   it('dry_run defaults to true when omitted', async () => {
