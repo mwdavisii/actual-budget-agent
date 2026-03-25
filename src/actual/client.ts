@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { logger } from '../logger';
 
+let initialized = false;
 let lock: Promise<void> = Promise.resolve();
 
 async function withLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -18,6 +19,13 @@ async function withLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+async function initActual(syncDir: string, serverUrl: string, password: string): Promise<void> {
+  process.env.ACTUAL_DATA_DIR = syncDir;
+  await actualApi.shutdown();
+  await actualApi.init({ dataDir: syncDir, serverURL: serverUrl, password });
+  initialized = true;
+}
+
 export async function withActual<T>(
   dataDir: string,
   budgetId: string,
@@ -28,20 +36,23 @@ export async function withActual<T>(
   return withLock(async () => {
     const syncDir = path.join(dataDir, 'actual-sync');
     fs.mkdirSync(syncDir, { recursive: true });
-    process.env.ACTUAL_DATA_DIR = syncDir;
-    // Re-init on every call: shutdown() resets actualApp so init() re-runs
-    // fully, re-asserting the server URL and re-authenticating. This avoids
-    // a persistent network-failure on subsequent calls caused by the server
-    // config being lost after the first budget load cycle.
-    await actualApi.shutdown();
-    await actualApi.init({
-      dataDir: syncDir,
-      serverURL: serverUrl,
-      password,
-    });
+
+    if (!initialized) {
+      await initActual(syncDir, serverUrl, password);
+    }
+
     // Always re-download to get the latest budget amounts — sync() only
     // syncs transactions and does not refresh the budget spreadsheet cache.
-    await actualApi.downloadBudget(budgetId, { password });
+    try {
+      await actualApi.downloadBudget(budgetId, { password });
+    } catch (e) {
+      // On network-failure the internal server config can be lost after a
+      // budget load cycle. Force a full re-init and retry once.
+      logger.warn('Budget sync failed, retrying after re-init', { error: String(e) });
+      await initActual(syncDir, serverUrl, password);
+      await actualApi.downloadBudget(budgetId, { password });
+    }
+
     logger.info('Actual Budget synced');
     return fn();
   });
