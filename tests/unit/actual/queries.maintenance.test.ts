@@ -2,6 +2,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getRollingPruneCutoff, pruneTransactions, cleanupHiddenCategories, cleanupClosedAccounts } from '../../../src/actual/queries';
 import { actualApi } from '../../../src/actual/client';
+import Database from 'better-sqlite3';
+import { runMigrations } from '../../../src/db/schema';
+import { getIncompleteCleanup } from '../../../src/db/cleanup';
 
 vi.mock('../../../src/actual/client', () => {
   const mockChain = {
@@ -21,9 +24,18 @@ vi.mock('../../../src/actual/client', () => {
       deleteTransaction: vi.fn(),
       getBudgetMonth: vi.fn(),
       setBudgetAmount: vi.fn(),
+      addTransactions: vi.fn(),
     },
   };
 });
+
+vi.mock('../../../src/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+
+function makeDb() {
+  const db = new Database(':memory:');
+  runMigrations(db);
+  return db;
+}
 
 // ── getRollingPruneCutoff ────────────────────────────────────────────────────
 
@@ -337,5 +349,85 @@ describe('pruneTransactions', () => {
     expect(actualApi.deleteTransaction).toHaveBeenCalledWith('tx1');
     expect(actualApi.deleteTransaction).toHaveBeenCalledWith('tx2');
     expect(actualApi.deleteTransaction).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ── pruneTransactions — phased ───────────────────────────────────────────────
+
+describe('pruneTransactions — phased', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('Phase 0: persists snapshot to cleanup_state', async () => {
+    const db = makeDb();
+
+    vi.mocked(actualApi.runQuery).mockResolvedValue({
+      data: [
+        { id: 'tx1', date: '2024-01-15', payee: 'Store', amount: -5000, category: 'cat1', account: 'acc1' },
+        { id: 'tx2', date: '2024-02-10', payee: 'Gas', amount: -3000, category: 'cat2', account: 'acc1' },
+      ],
+    } as any);
+
+    vi.mocked(actualApi.getBudgetMonth).mockImplementation(async (month: string) => {
+      if (month === '2024-03') {
+        return {
+          categoryGroups: [
+            { is_income: false, categories: [
+              { id: 'cat1', balance: 50000, budgeted: 10000 },
+              { id: 'cat2', balance: 20000, budgeted: 5000 },
+            ]},
+            { is_income: true, categories: [
+              { id: 'income1', balance: 0, budgeted: 0 },
+            ]},
+          ],
+        } as any;
+      }
+      if (month === '2024-04') {
+        return {
+          categoryGroups: [
+            { is_income: false, categories: [
+              { id: 'cat1', budgeted: 12000 },
+              { id: 'cat2', budgeted: 6000 },
+            ]},
+            { is_income: true, categories: [
+              { id: 'income1', budgeted: 0 },
+            ]},
+          ],
+        } as any;
+      }
+      return { categoryGroups: [] } as any;
+    });
+
+    vi.mocked(actualApi.getAccounts).mockResolvedValue([
+      { id: 'acc1', name: 'Checking', closed: false, offbudget: false },
+    ] as any);
+
+    await pruneTransactions('2024-04-01', false, db);
+
+    // Phases run to completion (stubs are no-ops), so query the raw row
+    const row = db.prepare('SELECT * FROM cleanup_state WHERE cutoff_date = ?').get('2024-04-01') as Record<string, string> | undefined;
+    expect(row).toBeDefined();
+    expect(row!['cutoff_date']).toBe('2024-04-01');
+    expect(JSON.parse(row!['transaction_ids'])).toEqual(['tx1', 'tx2']);
+    expect(JSON.parse(row!['account_adjustments'])).toEqual({ acc1: -8000 });
+    expect(JSON.parse(row!['category_carry_forwards'])).toEqual({ cat1: 50000, cat2: 20000 });
+    expect(JSON.parse(row!['first_kept_budgets'])).toEqual({ cat1: 12000, cat2: 6000, income1: 0 });
+    expect(row!['earliest_budget_month']).toBe('2024-01');
+    // Verify phase completed
+    expect(row!['phase']).toBe('complete');
+  });
+
+  it('dry run returns preview without persisting state', async () => {
+    const db = makeDb();
+    vi.mocked(actualApi.runQuery).mockResolvedValue({
+      data: [
+        { id: 'tx1', date: '2024-01-15', payee: 'Store', amount: -5000, category: 'cat1', account: 'acc1' },
+      ],
+    } as any);
+
+    const result = await pruneTransactions('2024-04-01', true, db);
+
+    expect(result.dryRun).toBe(true);
+    expect(result.deleted).toBe(1);
+    expect(getIncompleteCleanup(db)).toBeNull();
   });
 });

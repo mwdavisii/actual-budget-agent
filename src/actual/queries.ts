@@ -1,5 +1,15 @@
 import { actualApi } from './client';
 import { sanitizeObject } from '../sanitize';
+import type Database from 'better-sqlite3';
+import {
+  getIncompleteCleanup,
+  insertCleanupState,
+  updateCleanupPhase,
+  deleteOldCompletedStates,
+  type CleanupState,
+  type CleanupPhase,
+} from '../db/cleanup';
+import { logger } from '../logger';
 
 export interface Transaction {
   id: string;
@@ -136,39 +146,73 @@ export async function allocateBudget(month: string, categoryId: string, amount: 
 
 export async function pruneTransactions(
   before: string,
-  dryRun: boolean
+  dryRun: boolean,
+  db?: Database.Database
 ): Promise<{ deleted: number; dryRun: boolean; sample: string[] }> {
   const result = await actualApi.runQuery(
     actualApi.q('transactions')
       .filter({ date: { $lt: before } })
       .options({ splits: 'none' })
-      .select(['id', 'date', 'payee', 'amount', 'category'])
+      .select(['id', 'date', 'payee', 'amount', 'category', 'account'])
   );
-  const rows = (result as { data: Array<{ id: string; date: string; payee: string; amount: number; category: string | null }> }).data;
+  const rows = (result as { data: Array<{
+    id: string; date: string; payee: string; amount: number;
+    category: string | null; account: string;
+  }> }).data;
 
-  const sample = rows.slice(0, 5).map((r) => `${r.date} ${r.payee ?? '(no payee)'} $${(r.amount / 100).toFixed(2)}`);
+  const sample = rows.slice(0, 5).map(
+    (r) => `${r.date} ${r.payee ?? '(no payee)'} $${(r.amount / 100).toFixed(2)}`
+  );
 
-  if (!dryRun && rows.length > 0) {
-    // Determine month boundaries
-    const [byear, bmonth] = before.split('-').map(Number);
-    const firstKeptMonth = `${byear}-${String(bmonth).padStart(2, '0')}`;
-    const lzDate = new Date(byear, bmonth - 2, 1); // month before firstKeptMonth
-    const lastZeroedMonth = `${lzDate.getFullYear()}-${String(lzDate.getMonth() + 1).padStart(2, '0')}`;
+  if (dryRun || rows.length === 0) {
+    return { deleted: rows.length, dryRun, sample };
+  }
 
-    // Capture carry-forward balances from lastZeroedMonth (before any changes)
-    const lastZeroedData = await actualApi.getBudgetMonth(lastZeroedMonth) as unknown as {
-      categoryGroups: Array<{ is_income?: boolean; categories: Array<{ id: string; balance: number; budgeted: number }> }>;
-    };
-    const carryForwards: Record<string, number> = {};   // non-income only
-    const allCategoryIds: string[] = [];
-    for (const group of lastZeroedData.categoryGroups) {
-      for (const cat of group.categories) {
-        allCategoryIds.push(cat.id);
-        if (!group.is_income) carryForwards[cat.id] = Number(cat.balance);
+  if (!db) throw new Error('db is required for non-dry-run prune');
+
+  deleteOldCompletedStates(db);
+
+  let state = getIncompleteCleanup(db);
+  if (state && state.cutoffDate !== before) {
+    throw new Error(
+      `A cleanup for cutoff ${state.cutoffDate} is incomplete (phase: ${state.phase}). ` +
+      `Complete it first or use clear_state=true to abandon it.`
+    );
+  }
+
+  // Phase 0: Snapshot
+  if (!state) {
+    logger.info('Cleanup phase started', { phase: 'snapshot', cutoff_date: before });
+
+    const accounts = await actualApi.getAccounts() as Array<{
+      id: string; name: string; closed: boolean; offbudget: boolean;
+    }>;
+    const onBudgetIds = new Set(accounts.filter((a) => !a.closed && !a.offbudget).map((a) => a.id));
+
+    const accountAdjustments: Record<string, number> = {};
+    for (const row of rows) {
+      if (onBudgetIds.has(row.account)) {
+        accountAdjustments[row.account] = (accountAdjustments[row.account] ?? 0) + row.amount;
       }
     }
 
-    // Capture existing budget amounts for firstKeptMonth (before any changes)
+    const [byear, bmonth] = before.split('-').map(Number);
+    const lastZeroedYear = bmonth === 1 ? byear - 1 : byear;
+    const lastZeroedMonthNum = bmonth === 1 ? 12 : bmonth - 1;
+    const lastZeroedMonth = `${lastZeroedYear}-${String(lastZeroedMonthNum).padStart(2, '0')}`;
+    const firstKeptMonth = `${byear}-${String(bmonth).padStart(2, '0')}`;
+
+    const lastZeroedData = await actualApi.getBudgetMonth(lastZeroedMonth) as unknown as {
+      categoryGroups: Array<{ is_income?: boolean; categories: Array<{ id: string; balance: number }> }>;
+    };
+    const categoryCarryForwards: Record<string, number> = {};
+    for (const group of lastZeroedData.categoryGroups) {
+      if (group.is_income) continue;
+      for (const cat of group.categories) {
+        categoryCarryForwards[cat.id] = Number(cat.balance);
+      }
+    }
+
     const firstKeptData = await actualApi.getBudgetMonth(firstKeptMonth) as unknown as {
       categoryGroups: Array<{ categories: Array<{ id: string; budgeted: number }> }>;
     };
@@ -179,65 +223,80 @@ export async function pruneTransactions(
       }
     }
 
-    // Sum deleted transaction amounts per category within firstKeptMonth (mid-month cutoff)
-    const deletedInFirstKept: Record<string, number> = {};
-    for (const row of rows) {
-      if (row.date.slice(0, 7) === firstKeptMonth && row.category) {
-        deletedInFirstKept[row.category] = (deletedInFirstKept[row.category] ?? 0) + row.amount;
-      }
-    }
-
-    // Find earliest month across all deleted transactions
     const sortedDates = rows.map((r) => r.date).sort();
     const [ey, em] = sortedDates[0].split('-').map(Number);
-    const earliestMonth = `${ey}-${String(em).padStart(2, '0')}`;
-    const monthsToZero = getMonthRange(earliestMonth, lastZeroedMonth);
+    const earliestBudgetMonth = `${ey}-${String(em).padStart(2, '0')}`;
 
-    // Delete transactions
-    for (let i = 0; i < rows.length; i++) {
-      await actualApi.deleteTransaction(rows[i].id);
-      if (i % 50 === 49) await new Promise((r) => setImmediate(r));
-    }
-
-    // Zero out budget allocations for all months up through lastZeroedMonth
-    let opCount = 0;
-    for (const month of monthsToZero) {
-      for (const catId of allCategoryIds) {
-        await actualApi.setBudgetAmount(month, catId, 0);
-        opCount++;
-        if (opCount % 50 === 0) await new Promise((r) => setImmediate(r));
-      }
-    }
-
-    // Apply carry-forward adjustment to firstKeptMonth for non-income categories
-    for (const catId of Object.keys(carryForwards)) {
-      const carryForward = carryForwards[catId];
-      const deletedInMonth = deletedInFirstKept[catId] ?? 0;
-      const adjustment = carryForward + deletedInMonth; // deletedInMonth is negative for expenses
-      if (adjustment !== 0) {
-        const existingBudget = firstKeptBudgets[catId] ?? 0;
-        await actualApi.setBudgetAmount(firstKeptMonth, catId, existingBudget + adjustment);
-      }
-    }
-  } else if (!dryRun) {
-    // no-op: no transactions to prune
+    state = {
+      cutoffDate: before,
+      accountAdjustments,
+      categoryCarryForwards,
+      firstKeptBudgets,
+      transactionIds: rows.map((r) => r.id),
+      earliestBudgetMonth,
+      phase: 'pending',
+    };
+    insertCleanupState(db, state);
+    logger.info('Cleanup phase complete', { phase: 'snapshot', cutoff_date: before, ops_count: rows.length });
   } else {
-    // dry run — nothing to do
+    logger.warn('Resuming interrupted cleanup', { phase: state.phase, cutoff_date: before });
   }
 
-  return { deleted: rows.length, dryRun, sample };
+  // Phase dispatch
+  const phases: CleanupPhase[] = ['pending', 'deleting', 'adjustments', 'budgets', 'zeroed'];
+  const startIndex = phases.indexOf(state.phase);
+
+  for (let i = startIndex; i < phases.length; i++) {
+    const phase = phases[i];
+    if (phase === 'pending') {
+      updateCleanupPhase(db, before, 'deleting');
+      state.phase = 'deleting';
+    } else if (phase === 'deleting') {
+      await executePhaseDelete(state);
+      updateCleanupPhase(db, before, 'adjustments');
+      state.phase = 'adjustments';
+    } else if (phase === 'adjustments') {
+      await executePhaseAdjustments(state);
+      updateCleanupPhase(db, before, 'budgets');
+      state.phase = 'budgets';
+    } else if (phase === 'budgets') {
+      await executePhaseBudgets(state);
+      updateCleanupPhase(db, before, 'zeroed');
+      state.phase = 'zeroed';
+    } else if (phase === 'zeroed') {
+      await executePhaseZero(state);
+      updateCleanupPhase(db, before, 'complete');
+      state.phase = 'complete';
+    }
+  }
+
+  return { deleted: state.transactionIds.length, dryRun: false, sample };
 }
 
-function getMonthRange(start: string, end: string): string[] {
-  const months: string[] = [];
-  let [y, m] = start.split('-').map(Number);
-  const [ey, em] = end.split('-').map(Number);
-  while (y < ey || (y === ey && m <= em)) {
-    months.push(`${y}-${String(m).padStart(2, '0')}`);
-    m++;
-    if (m > 12) { m = 1; y++; }
-  }
-  return months;
+// Phase implementations — stubbed, filled in subsequent tasks
+
+async function executePhaseDelete(state: CleanupState): Promise<void> {
+  logger.info('Cleanup phase started', { phase: 'deleting', cutoff_date: state.cutoffDate });
+  // TODO: Task 5
+  logger.info('Cleanup phase complete', { phase: 'deleting', cutoff_date: state.cutoffDate, ops_count: state.transactionIds.length });
+}
+
+async function executePhaseAdjustments(state: CleanupState): Promise<void> {
+  logger.info('Cleanup phase started', { phase: 'adjustments', cutoff_date: state.cutoffDate });
+  // TODO: Task 6
+  logger.info('Cleanup phase complete', { phase: 'adjustments', cutoff_date: state.cutoffDate, ops_count: Object.keys(state.accountAdjustments).length });
+}
+
+async function executePhaseBudgets(state: CleanupState): Promise<void> {
+  logger.info('Cleanup phase started', { phase: 'budgets', cutoff_date: state.cutoffDate });
+  // TODO: Task 7
+  logger.info('Cleanup phase complete', { phase: 'budgets', cutoff_date: state.cutoffDate, ops_count: Object.keys(state.categoryCarryForwards).length });
+}
+
+async function executePhaseZero(state: CleanupState): Promise<void> {
+  logger.info('Cleanup phase started', { phase: 'zeroed', cutoff_date: state.cutoffDate });
+  // TODO: Task 8
+  logger.info('Cleanup phase complete', { phase: 'zeroed', cutoff_date: state.cutoffDate });
 }
 
 export function getRollingPruneCutoff(months: number): string {
