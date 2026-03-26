@@ -3,6 +3,7 @@ import { sanitizeObject } from '../sanitize';
 import type Database from 'better-sqlite3';
 import {
   getIncompleteCleanup,
+  getMostRecentCompleted,
   insertCleanupState,
   updateCleanupPhase,
   deleteOldCompletedStates,
@@ -387,6 +388,35 @@ async function executePhaseZero(state: CleanupState): Promise<void> {
     if (m > 12) { m = 1; y++; }
   }
   logger.info('Cleanup phase complete', { phase: 'zeroed', cutoff_date: state.cutoffDate, ops_count: totalOps });
+}
+
+export async function revertCarryForwards(
+  db: Database.Database,
+  dryRun: boolean
+): Promise<{ cutoffDate: string; reverted: number; dryRun: boolean; sample: string[] }> {
+  const state = getMostRecentCompleted(db);
+  if (!state) throw new Error('No completed cleanup state found — nothing to revert');
+
+  const [byear, bmonth] = state.cutoffDate.split('-').map(Number);
+  const firstKeptMonth = `${byear}-${String(bmonth).padStart(2, '0')}`;
+
+  const sample: string[] = [];
+  let reverted = 0;
+
+  for (const [catId, carryForward] of Object.entries(state.categoryCarryForwards)) {
+    if (carryForward === 0) continue;
+    const original = state.firstKeptBudgets[catId] ?? 0;
+    if (sample.length < 5) {
+      sample.push(`cat:${catId} carry=${(carryForward / 100).toFixed(2)} → reset to ${(original / 100).toFixed(2)}`);
+    }
+    if (!dryRun) {
+      await actualApi.setBudgetAmount(firstKeptMonth, catId, original);
+      await new Promise((r) => setImmediate(r));
+    }
+    reverted++;
+  }
+
+  return { cutoffDate: state.cutoffDate, reverted, dryRun, sample };
 }
 
 export function getRollingPruneCutoff(months: number): string {

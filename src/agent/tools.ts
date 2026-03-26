@@ -9,6 +9,7 @@ import {
   cleanupHiddenCategories,
   cleanupClosedAccounts,
   pruneTransactions,
+  revertCarryForwards,
 } from '../actual/queries';
 import { getPendingProposals } from '../db/proposals';
 import { getTargets, setTarget, seedTargets, getUnderfundedCategories, exportTargets, importTargets, type TargetExport } from '../db/targets';
@@ -174,6 +175,20 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description: 'Exports the Actual Budget database as a ZIP file attachment in the current Discord thread. This exports the full budget database, not the budget targets JSON.',
     parameters: { type: 'object', properties: {}, required: [] },
   },
+  {
+    name: 'revert_carry_forwards',
+    description: 'Reverts the category carry-forwards injected by the last completed cleanup_budget run. Use this when cleanup created incorrect positive balances in budget categories. ALWAYS call with dry_run=true first to preview what will be changed.',
+    parameters: {
+      type: 'object',
+      properties: {
+        dry_run: {
+          type: 'boolean',
+          description: 'If true (default), preview without making changes. Set to false to apply the revert.',
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 export async function executeTool(
@@ -324,6 +339,14 @@ export async function executeTool(
           warnings.push(`Account cleanup failed: ${String(err)}`);
         }
         return { dryRun, transactions, categories, accounts, warnings };
+      });
+    }
+
+    case 'revert_carry_forwards': {
+      const dryRun = input['dry_run'] !== false;
+      return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
+        const result = await revertCarryForwards(db, dryRun);
+        return result;
       });
     }
 
