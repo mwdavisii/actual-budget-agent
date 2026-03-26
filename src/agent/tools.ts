@@ -291,14 +291,14 @@ export async function executeTool(
           warnings.push(`Transaction prune failed: ${String(err)}`);
         }
         try {
-          const catResult = await cleanupHiddenCategories(dryRun);
+          const catResult = await cleanupHiddenCategories(dryRun, cutoff);
           categories = { count: catResult.deleted, names: catResult.names };
           warnings.push(...catResult.warnings);
         } catch (err) {
           warnings.push(`Category cleanup failed: ${String(err)}`);
         }
         try {
-          const accResult = await cleanupClosedAccounts(dryRun);
+          const accResult = await cleanupClosedAccounts(dryRun, cutoff);
           accounts = { count: accResult.deleted, names: accResult.names };
           warnings.push(...accResult.warnings);
         } catch (err) {

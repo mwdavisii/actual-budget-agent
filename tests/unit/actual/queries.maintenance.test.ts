@@ -146,6 +146,23 @@ describe('cleanupHiddenCategories', () => {
     expect(result.warnings[0]).toContain('Will Fail');
     expect(result.deleted).toBe(1);
   });
+
+  it('passes cutoff date filter when provided', async () => {
+    vi.mocked(actualApi.getCategoryGroups).mockResolvedValue([
+      {
+        id: 'g1', name: 'Group', hidden: false,
+        categories: [{ id: 'c1', name: 'Old Hidden', hidden: true }],
+      },
+    ] as any);
+    vi.mocked(actualApi.runQuery).mockResolvedValue({ data: [] } as any);
+
+    await cleanupHiddenCategories(true, '2024-03-01');
+
+    const chain = vi.mocked(actualApi.q).mock.results[0].value;
+    expect(chain.filter).toHaveBeenCalledWith(
+      expect.objectContaining({ date: { $gte: '2024-03-01' } })
+    );
+  });
 });
 
 // ── cleanupClosedAccounts ────────────────────────────────────────────────────
@@ -205,6 +222,20 @@ describe('cleanupClosedAccounts', () => {
 
     expect(result.warnings).toHaveLength(1);
     expect(result.deleted).toBe(1);
+  });
+
+  it('passes cutoff date filter when provided', async () => {
+    vi.mocked(actualApi.getAccounts).mockResolvedValue([
+      { id: 'a1', name: 'Old Closed', closed: true },
+    ] as any);
+    vi.mocked(actualApi.runQuery).mockResolvedValue({ data: [] } as any);
+
+    await cleanupClosedAccounts(true, '2024-03-01');
+
+    const chain = vi.mocked(actualApi.q).mock.results[0].value;
+    expect(chain.filter).toHaveBeenCalledWith(
+      expect.objectContaining({ date: { $gte: '2024-03-01' } })
+    );
   });
 });
 
