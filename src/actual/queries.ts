@@ -179,6 +179,13 @@ export async function pruneTransactions(
   if (clearState) {
     const existing = getIncompleteCleanup(db);
     if (existing) {
+      if (existing.phase !== 'pending' && rows.length < existing.transactionIds.length) {
+        throw new Error(
+          `Cannot clear state: ${existing.transactionIds.length - rows.length} transactions were already deleted ` +
+          `(snapshot had ${existing.transactionIds.length}, now ${rows.length}). ` +
+          `Restore from backup before using clear_state=true, or resume without it.`
+        );
+      }
       logger.info('Clearing incomplete cleanup state', { cutoff_date: existing.cutoffDate });
       deleteCleanupState(db, existing.cutoffDate);
     }

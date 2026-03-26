@@ -513,6 +513,31 @@ describe('pruneTransactions — phased', () => {
     expect(state === null || state.cutoffDate === '2025-01-01').toBe(true);
   });
 
+  it('clear_state rejects when partial deletion detected', async () => {
+    const db = makeDb();
+    const { insertCleanupState } = await import('../../../src/db/cleanup');
+    insertCleanupState(db, {
+      cutoffDate: '2024-04-01',
+      accountAdjustments: {},
+      categoryCarryForwards: {},
+      firstKeptBudgets: {},
+      transactionIds: ['tx1', 'tx2', 'tx3', 'tx4', 'tx5'], // snapshot had 5
+      earliestBudgetMonth: '2022-01',
+      phase: 'deleting',
+    });
+
+    // Only 3 transactions remain (2 were deleted before clear_state)
+    vi.mocked(actualApi.runQuery).mockResolvedValue({
+      data: [
+        { id: 'tx3', date: '2024-01-01', payee: 'X', amount: -100, category: 'c1', account: 'a1' },
+        { id: 'tx4', date: '2024-01-02', payee: 'Y', amount: -200, category: 'c1', account: 'a1' },
+        { id: 'tx5', date: '2024-01-03', payee: 'Z', amount: -300, category: 'c1', account: 'a1' },
+      ],
+    } as any);
+
+    await expect(pruneTransactions('2024-04-01', false, db, true)).rejects.toThrow(/2 transactions were already deleted/);
+  });
+
   it('Phase 0: excludes off-budget transactions from account_adjustments but includes in transactionIds', async () => {
     const db = makeDb();
 
