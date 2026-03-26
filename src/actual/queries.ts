@@ -149,7 +149,8 @@ export async function pruneTransactions(
   before: string,
   dryRun: boolean,
   db?: Database.Database,
-  clearState?: boolean
+  clearState?: boolean,
+  onProgress?: (count: number, total: number) => Promise<void>
 ): Promise<{ deleted: number; dryRun: boolean; sample: string[] }> {
   const result = await actualApi.runQuery(
     actualApi.q('transactions')
@@ -267,7 +268,7 @@ export async function pruneTransactions(
       updateCleanupPhase(db, before, 'deleting');
       state.phase = 'deleting';
     } else if (phase === 'deleting') {
-      await executePhaseDelete(state);
+      await executePhaseDelete(state, onProgress);
       updateCleanupPhase(db, before, 'adjustments');
       state.phase = 'adjustments';
     } else if (phase === 'adjustments') {
@@ -290,8 +291,12 @@ export async function pruneTransactions(
 
 // Phase implementations — stubbed, filled in subsequent tasks
 
-async function executePhaseDelete(state: CleanupState): Promise<void> {
+async function executePhaseDelete(
+  state: CleanupState,
+  onProgress?: (count: number, total: number) => Promise<void>
+): Promise<void> {
   logger.info('Cleanup phase started', { phase: 'deleting', cutoff_date: state.cutoffDate });
+  const total = state.transactionIds.length;
   let count = 0;
   for (const id of state.transactionIds) {
     try {
@@ -300,9 +305,11 @@ async function executePhaseDelete(state: CleanupState): Promise<void> {
       logger.warn('Transaction delete skipped', { id, error: String(err) });
     }
     count++;
-    if (count % 500 === 0) logger.info('Delete progress', { count, total: state.transactionIds.length });
+    if (count % 500 === 0) logger.info('Delete progress', { count, total });
+    if (count % 1000 === 0 && onProgress) await onProgress(count, total);
     await new Promise((r) => setImmediate(r));
   }
+  if (onProgress) await onProgress(total, total);
   logger.info('Cleanup phase complete', { phase: 'deleting', cutoff_date: state.cutoffDate, ops_count: count });
 }
 

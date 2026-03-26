@@ -15,6 +15,7 @@ import { getTargets, setTarget, seedTargets, getUnderfundedCategories, exportTar
 import type Database from 'better-sqlite3';
 import type { Client } from 'discord.js';
 import { AttachmentBuilder } from 'discord.js';
+import { logger } from '../logger';
 
 export interface ActualConfig {
   dataDir: string;
@@ -284,8 +285,26 @@ export async function executeTool(
 
       const cutoff = getRollingPruneCutoff(months);
       return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
+        let progressMsg: { edit: (opts: { content: string }) => Promise<void> } | null = null;
+        const onProgress = (!dryRun && context?.discord && context?.threadId)
+          ? async (count: number, total: number) => {
+            const pct = Math.round((count / total) * 100);
+            const content = `Deleting transactions: ${count.toLocaleString()} / ${total.toLocaleString()} (${pct}%)`;
+            try {
+              if (!progressMsg) {
+                const thread = await context.discord.channels.fetch(context.threadId) as any;
+                progressMsg = await thread.send({ content });
+              } else {
+                await progressMsg.edit({ content });
+              }
+            } catch (err) {
+              logger.warn('Discord progress update failed', { error: String(err) });
+            }
+          }
+          : undefined;
+
         try {
-          const pruneResult = await pruneTransactions(cutoff, dryRun, dryRun ? undefined : db, clearState);
+          const pruneResult = await pruneTransactions(cutoff, dryRun, dryRun ? undefined : db, clearState, onProgress);
           transactions = { count: pruneResult.deleted, sample: pruneResult.sample };
         } catch (err) {
           warnings.push(`Transaction prune failed: ${String(err)}`);
