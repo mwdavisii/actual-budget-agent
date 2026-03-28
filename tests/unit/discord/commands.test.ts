@@ -42,6 +42,16 @@ vi.mock('../../../src/agent/index', () => ({
   getAppContext: vi.fn().mockReturnValue({ db: {} }),
 }));
 
+vi.mock('../../../src/discord/cleanup-flow', () => ({
+  startCleanupFlow: vi.fn().mockResolvedValue({
+    cutoff: '2024-04-01', months: 24,
+    transactions: { count: 10, sample: [] },
+    categories: { count: 2, names: [] },
+    accounts: { count: 1, names: [] },
+    warnings: [],
+  }),
+}));
+
 import { postToThread } from '../../../src/discord/threads';
 
 const mockCtx: CommandContext = {
@@ -123,14 +133,25 @@ describe('executeCommand', () => {
     expect(handleAllocatePayPeriod).toHaveBeenCalledWith(mockCtx.webhookCtx);
   });
 
-  it('cleanup defaults to dry-run with 24 months', async () => {
-    const { pruneTransactions } = await import('../../../src/actual/queries');
+  it('cleanup starts the interactive cleanup flow', async () => {
+    const { startCleanupFlow } = await import('../../../src/discord/cleanup-flow');
     await executeCommand('cleanup', mockCtx, []);
 
-    expect(pruneTransactions).toHaveBeenCalledWith('2024-04-01', true, undefined);
-    const msg = vi.mocked(postToThread).mock.calls[0][2];
-    expect(msg).toContain('**Preview**');
-    expect(msg).toContain('!cleanup 24 --confirm');
+    expect(startCleanupFlow).toHaveBeenCalledWith(
+      mockCtx.client, mockCtx.threadId, 24,
+      expect.objectContaining({ budgetId: 'budget-1' }),
+      expect.anything()
+    );
+  });
+
+  it('cleanup accepts custom months', async () => {
+    const { startCleanupFlow } = await import('../../../src/discord/cleanup-flow');
+    await executeCommand('cleanup', mockCtx, ['12']);
+
+    expect(startCleanupFlow).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), 12,
+      expect.anything(), expect.anything()
+    );
   });
 
   it('cleanup rejects months < 3', async () => {
