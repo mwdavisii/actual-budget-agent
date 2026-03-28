@@ -28,7 +28,7 @@
     "better-sqlite3": "^12.8.0",
     "discord.js": "^14.16.0",
     "express": "^5.2.1",
-    "nodemailer": "^8.0.3",
+    "nodemailer": "^8.0.4",
     "openai": "^6.32.0"
   },
   "overrides": {
