@@ -305,6 +305,7 @@ async function executePhaseDelete(
 ): Promise<void> {
   logger.info('Cleanup phase started', { phase: 'deleting', cutoff_date: state.cutoffDate });
   const total = state.transactionIds.length;
+  if (onProgress) await onProgress(0, total);
   let count = 0;
   for (const id of state.transactionIds) {
     try {
@@ -314,7 +315,7 @@ async function executePhaseDelete(
     }
     count++;
     if (count % 500 === 0) logger.info('Delete progress', { count, total });
-    if (count % 1000 === 0 && onProgress) await onProgress(count, total);
+    if (count % 100 === 0 && onProgress) await onProgress(count, total);
     await new Promise((r) => setImmediate(r));
   }
   if (onProgress) await onProgress(total, total);
