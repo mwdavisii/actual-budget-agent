@@ -150,21 +150,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'cleanup_budget',
-    description: 'Preview or execute budget maintenance: prune old transactions, delete hidden categories with no transactions, and delete closed accounts with no transactions. ALWAYS call with dry_run=true first to preview. ALWAYS offer export_budget before calling with dry_run=false.',
+    description: 'Start budget cleanup: posts a preview with action buttons (Cancel, Export Backup, Proceed). The user controls the flow via buttons — do NOT call this tool multiple times or ask the user to confirm via chat.',
     parameters: {
       type: 'object',
       properties: {
         months: {
           type: 'number',
           description: 'Delete transactions older than this many months. Must be >= 3.',
-        },
-        dry_run: {
-          type: 'boolean',
-          description: 'If true (default), returns a preview without deleting anything.',
-        },
-        clear_state: {
-          type: 'boolean',
-          description: 'If true, abandons any incomplete cleanup state and starts fresh.',
         },
       },
       required: ['months'],
@@ -289,57 +281,28 @@ export async function executeTool(
 
     case 'cleanup_budget': {
       const months = Number(input['months']);
-      const dryRun = input['dry_run'] !== false; // defaults to true
-      const clearState = input['clear_state'] === true;
       if (!Number.isFinite(months) || months < 3) return { error: 'months must be >= 3 to prevent accidental data loss' };
 
-      const warnings: string[] = [];
-      let transactions = { count: 0, sample: [] as string[] };
-      let categories = { count: 0, names: [] as string[] };
-      let accounts = { count: 0, names: [] as string[] };
+      if (!context?.discord || !context?.threadId) {
+        return { error: 'No Discord context available for cleanup_budget' };
+      }
 
-      const cutoff = getRollingPruneCutoff(months);
-      return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
-        let progressMsg: { edit: (opts: { content: string }) => Promise<void> } | null = null;
-        const onProgress = (!dryRun && context?.discord && context?.threadId)
-          ? async (count: number, total: number) => {
-            const pct = Math.round((count / total) * 100);
-            const content = `Deleting transactions: ${count.toLocaleString()} / ${total.toLocaleString()} (${pct}%)`;
-            try {
-              if (!progressMsg) {
-                const thread = await context.discord.channels.fetch(context.threadId) as any;
-                progressMsg = await thread.send({ content });
-              } else {
-                await progressMsg.edit({ content });
-              }
-            } catch (err) {
-              logger.warn('Discord progress update failed', { error: String(err) });
-            }
-          }
-          : undefined;
+      const { startCleanupFlow } = await import('../discord/cleanup-flow');
+      const result = await startCleanupFlow(context.discord, context.threadId, months, {
+        dataDir: actualConfig.dataDir,
+        budgetId: actualConfig.budgetId,
+        serverUrl: actualConfig.serverUrl,
+        password: actualConfig.password,
+      }, db);
 
-        try {
-          const pruneResult = await pruneTransactions(cutoff, dryRun, dryRun ? undefined : db, clearState, onProgress);
-          transactions = { count: pruneResult.deleted, sample: pruneResult.sample };
-        } catch (err) {
-          warnings.push(`Transaction prune failed: ${String(err)}`);
-        }
-        try {
-          const catResult = await cleanupHiddenCategories(dryRun, cutoff);
-          categories = { count: catResult.deleted, names: catResult.names };
-          warnings.push(...catResult.warnings);
-        } catch (err) {
-          warnings.push(`Category cleanup failed: ${String(err)}`);
-        }
-        try {
-          const accResult = await cleanupClosedAccounts(dryRun, cutoff);
-          accounts = { count: accResult.deleted, names: accResult.names };
-          warnings.push(...accResult.warnings);
-        } catch (err) {
-          warnings.push(`Account cleanup failed: ${String(err)}`);
-        }
-        return { dryRun, transactions, categories, accounts, warnings };
-      });
+      return {
+        dryRun: true,
+        message: 'Preview posted with action buttons. User can export a backup, proceed with deletion, or cancel.',
+        transactions: result.transactions,
+        categories: result.categories,
+        accounts: result.accounts,
+        warnings: result.warnings,
+      };
     }
 
     case 'revert_carry_forwards': {

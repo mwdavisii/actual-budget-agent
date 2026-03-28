@@ -65,71 +65,25 @@ const commands: Record<string, Command> = {
   },
 
   cleanup: {
-    description: 'Preview or run budget cleanup',
-    usage: '!cleanup [months] [--confirm]',
+    description: 'Preview budget cleanup with options to export and proceed',
+    usage: '!cleanup [months]',
     handler: async (ctx, args) => {
       const months = parseInt(args[0] || '24', 10);
       if (!Number.isFinite(months) || months < 3) {
         await postToThread(ctx.client, ctx.threadId, 'months must be a number >= 3');
         return;
       }
-      const confirm = args.includes('--confirm');
-      const dryRun = !confirm;
 
-      const { getRollingPruneCutoff, pruneTransactions, cleanupHiddenCategories, cleanupClosedAccounts } = await import('../actual/queries');
-      const { withActual } = await import('../actual/client');
+      const { startCleanupFlow } = await import('./cleanup-flow');
       const { getAppContext } = await import('../agent/index');
-
-      const cutoff = getRollingPruneCutoff(months);
-      const wCtx = ctx.webhookCtx;
       const { db } = getAppContext();
 
-      const result = await withActual(wCtx.dataDir, wCtx.budgetId, wCtx.actualServerUrl, wCtx.actualPassword, async () => {
-        const warnings: string[] = [];
-        let transactions = { count: 0, sample: [] as string[] };
-        let categories = { count: 0, names: [] as string[] };
-        let accounts = { count: 0, names: [] as string[] };
-
-        try {
-          const pruneResult = await pruneTransactions(cutoff, dryRun, dryRun ? undefined : db);
-          transactions = { count: pruneResult.deleted, sample: pruneResult.sample };
-        } catch (err) {
-          warnings.push(`Transaction prune failed: ${String(err)}`);
-        }
-        try {
-          const catResult = await cleanupHiddenCategories(dryRun, cutoff);
-          categories = { count: catResult.deleted, names: catResult.names };
-          warnings.push(...catResult.warnings);
-        } catch (err) {
-          warnings.push(`Category cleanup failed: ${String(err)}`);
-        }
-        try {
-          const accResult = await cleanupClosedAccounts(dryRun, cutoff);
-          accounts = { count: accResult.deleted, names: accResult.names };
-          warnings.push(...accResult.warnings);
-        } catch (err) {
-          warnings.push(`Account cleanup failed: ${String(err)}`);
-        }
-        return { dryRun, cutoff, transactions, categories, accounts, warnings };
-      });
-
-      const mode = result.dryRun ? 'Preview' : 'Cleanup complete';
-      const lines = [
-        `**${mode}** (cutoff: ${result.cutoff})`,
-        `- Transactions: ${result.transactions.count}`,
-        `- Hidden categories: ${result.categories.count}`,
-        `- Closed accounts: ${result.accounts.count}`,
-      ];
-      if (result.transactions.sample.length > 0) {
-        lines.push('', '**Sample transactions:**', ...result.transactions.sample.map(s => `- ${s}`));
-      }
-      if (result.warnings.length > 0) {
-        lines.push('', '**Warnings:**', ...result.warnings.map(w => `- ${w}`));
-      }
-      if (result.dryRun) {
-        lines.push('', 'Run `!cleanup ' + months + ' --confirm` to execute.');
-      }
-      await postToThread(ctx.client, ctx.threadId, lines.join('\n'));
+      await startCleanupFlow(ctx.client, ctx.threadId, months, {
+        dataDir: ctx.webhookCtx.dataDir,
+        budgetId: ctx.webhookCtx.budgetId,
+        serverUrl: ctx.webhookCtx.actualServerUrl,
+        password: ctx.webhookCtx.actualPassword,
+      }, db);
     },
   },
 

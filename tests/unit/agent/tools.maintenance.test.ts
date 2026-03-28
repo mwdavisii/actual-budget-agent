@@ -54,63 +54,49 @@ const actualConfig: ActualConfig = {
 };
 const noop = async () => '';
 
+// Mock the cleanup flow module
+vi.mock('../../../src/discord/cleanup-flow', () => ({
+  startCleanupFlow: vi.fn().mockResolvedValue({
+    cutoff: '2024-04-01', months: 24,
+    transactions: { count: 100, sample: ['2023-01-01 Target $10.00'] },
+    categories: { count: 2, names: ['Old Cat'] },
+    accounts: { count: 1, names: ['Closed Account'] },
+    warnings: [],
+  }),
+}));
+
+import { startCleanupFlow } from '../../../src/discord/cleanup-flow';
+
 // ── cleanup_budget ───────────────────────────────────────────────────────────
 
 describe('executeTool — cleanup_budget', () => {
+  const mockDiscord = { channels: { fetch: vi.fn() } } as any;
+
   beforeEach(() => vi.clearAllMocks());
 
   it('returns error when months < 3', async () => {
-    const result = await executeTool('cleanup_budget', { months: 2 }, actualConfig, makeDb(), noop);
+    const result = await executeTool('cleanup_budget', { months: 2 }, actualConfig, makeDb(), noop, { discord: mockDiscord, threadId: 'thread-1' });
     expect(result).toMatchObject({ error: expect.stringContaining('months must be >= 3') });
-    expect(withActual).not.toHaveBeenCalled();
   });
 
-  it('dry run calls all three functions with dryRun=true and returns combined result', async () => {
-    vi.mocked(pruneTransactions).mockResolvedValue({ deleted: 100, dryRun: true, sample: ['2023-01-01 Target $10.00'] });
-    vi.mocked(cleanupHiddenCategories).mockResolvedValue({ deleted: 2, names: ['Old Cat'], warnings: [] });
-    vi.mocked(cleanupClosedAccounts).mockResolvedValue({ deleted: 1, names: ['Closed Account'], warnings: [] });
+  it('returns error when no Discord context provided', async () => {
+    const result = await executeTool('cleanup_budget', { months: 24 }, actualConfig, makeDb(), noop);
+    expect(result).toMatchObject({ error: expect.stringContaining('No Discord context') });
+  });
 
-    const result = await executeTool('cleanup_budget', { months: 24, dry_run: true }, actualConfig, makeDb(), noop) as any;
+  it('delegates to startCleanupFlow and returns preview', async () => {
+    const db = makeDb();
+    const result = await executeTool('cleanup_budget', { months: 24 }, actualConfig, db, noop, { discord: mockDiscord, threadId: 'thread-1' }) as any;
 
+    expect(startCleanupFlow).toHaveBeenCalledWith(
+      mockDiscord, 'thread-1', 24,
+      expect.objectContaining({ budgetId: 'test' }),
+      db
+    );
     expect(result.dryRun).toBe(true);
+    expect(result.message).toContain('buttons');
     expect(result.transactions.count).toBe(100);
     expect(result.categories.count).toBe(2);
-    expect(result.accounts.count).toBe(1);
-    expect(result.warnings).toHaveLength(0);
-    expect(pruneTransactions).toHaveBeenCalledWith('2024-04-01', true, undefined, false, undefined);
-    expect(cleanupHiddenCategories).toHaveBeenCalledWith(true, '2024-04-01');
-    expect(cleanupClosedAccounts).toHaveBeenCalledWith(true, '2024-04-01');
-  });
-
-  it('dry_run defaults to true when omitted', async () => {
-    vi.mocked(pruneTransactions).mockResolvedValue({ deleted: 0, dryRun: true, sample: [] });
-    vi.mocked(cleanupHiddenCategories).mockResolvedValue({ deleted: 0, names: [], warnings: [] });
-    vi.mocked(cleanupClosedAccounts).mockResolvedValue({ deleted: 0, names: [], warnings: [] });
-
-    const result = await executeTool('cleanup_budget', { months: 24 }, actualConfig, makeDb(), noop) as any;
-    expect(result.dryRun).toBe(true);
-  });
-
-  it('passes clear_state and db to pruneTransactions for non-dry-run', async () => {
-    vi.mocked(pruneTransactions).mockResolvedValue({ deleted: 50, dryRun: false, sample: [] });
-    vi.mocked(cleanupHiddenCategories).mockResolvedValue({ deleted: 0, names: [], warnings: [] });
-    vi.mocked(cleanupClosedAccounts).mockResolvedValue({ deleted: 0, names: [], warnings: [] });
-
-    const db = makeDb();
-    await executeTool('cleanup_budget', { months: 24, dry_run: false, clear_state: true }, actualConfig, db, noop);
-
-    expect(pruneTransactions).toHaveBeenCalledWith('2024-04-01', false, db, true, undefined);
-  });
-
-  it('merges warnings from all phases and continues on phase-level failure', async () => {
-    vi.mocked(pruneTransactions).mockRejectedValue(new Error('prune failed'));
-    vi.mocked(cleanupHiddenCategories).mockResolvedValue({ deleted: 0, names: [], warnings: ['cat warning'] });
-    vi.mocked(cleanupClosedAccounts).mockResolvedValue({ deleted: 1, names: ['Acc'], warnings: [] });
-
-    const result = await executeTool('cleanup_budget', { months: 12, dry_run: false }, actualConfig, makeDb(), noop) as any;
-
-    expect(result.warnings).toContain('Transaction prune failed: Error: prune failed');
-    expect(result.warnings).toContain('cat warning');
     expect(result.accounts.count).toBe(1);
   });
 });

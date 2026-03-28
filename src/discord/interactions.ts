@@ -3,6 +3,7 @@ import { updateProposalStatus } from '../db/proposals';
 import { setCategoryForTransaction } from '../actual/queries';
 import { withActual } from '../actual/client';
 import { postToThread, editMessage } from './threads';
+import { handleCleanupInteraction } from './cleanup-flow';
 import { logger } from '../logger';
 import type Database from 'better-sqlite3';
 import type { SecretsConfig } from '../config';
@@ -29,6 +30,9 @@ export function registerInteractionHandler(
       await interaction.reply({ content: 'Not authorized.', ephemeral: true });
       return;
     }
+
+    // Handle cleanup flow buttons
+    if (await handleCleanupInteraction(interaction, client)) return;
 
     const messageId = interaction.message.id;
     const proposal = db
