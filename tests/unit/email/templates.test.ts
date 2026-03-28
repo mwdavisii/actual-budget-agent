@@ -13,16 +13,16 @@ describe('buildWeeklyDigest', () => {
     expect(body).toMatch(/\$630\.00/);
   });
 
-  it('marks overspent category as Over Budget', () => {
+  it('marks overspent category with over-by amount', () => {
     const { body } = buildWeeklyDigest(categories, 63000);
     expect(body).toMatch(/Dining Out/);
-    expect(body).toMatch(/Over Budget/);
+    expect(body).toMatch(/over by \$50\.00/);
   });
 
-  it('marks on-track category as On Track', () => {
+  it('marks on-track category with remaining amount', () => {
     const { body } = buildWeeklyDigest(categories, 63000);
     expect(body).toMatch(/Groceries/);
-    expect(body).toMatch(/On Track/);
+    expect(body).toMatch(/\$180\.00 remaining/);
   });
 });
 

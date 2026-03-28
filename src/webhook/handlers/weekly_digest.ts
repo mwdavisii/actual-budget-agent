@@ -47,8 +47,10 @@ export async function handleWeeklyDigest(ctx: WebhookContext): Promise<void> {
     `**Total spent this week:** ${dollars(weekSpent)}`,
     '',
     ...sorted.map((c) => {
-      const status = c.available < 0 ? '**over budget**' : 'on track';
-      return `• **${c.name}**: spent ${dollars(c.spent)} of ${dollars(c.budgeted)} — ${status}`;
+      if (c.available < 0) {
+        return `• **${c.name}**: spent ${dollars(c.spent)} — **over by ${dollars(c.available)}**`;
+      }
+      return `• **${c.name}**: spent ${dollars(c.spent)} — ${dollars(c.available)} remaining`;
     }),
   ];
   const thread = await getOrCreateThread(discord, secrets.discordBudgetChannelId, `Weekly digest — ${date}`);

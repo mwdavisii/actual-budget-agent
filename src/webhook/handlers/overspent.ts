@@ -36,9 +36,8 @@ export async function handleOverspent(ctx: WebhookContext): Promise<void> {
   const title = `${overspent.length} overspent categor${overspent.length > 1 ? 'ies' : 'y'} — ${date}`;
   const lines = overspent.map((c) => {
     const over = Math.abs(c.available) / 100;
-    const budgeted = c.budgeted / 100;
     const spent = Math.abs(c.spent) / 100;
-    return `• **${c.name}**: $${over.toFixed(2)} over (budgeted $${budgeted.toFixed(2)}, spent $${spent.toFixed(2)})`;
+    return `• **${c.name}**: spent $${spent.toFixed(2)} — **over by $${over.toFixed(2)}**`;
   });
 
   logger.info('Overspent handler: creating Discord thread');

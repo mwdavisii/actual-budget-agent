@@ -13,7 +13,12 @@ export function buildWeeklyDigest(
   const narrative = `You spent ${dollars(totalSpentCents)} this week. ${top.name} was your biggest category at ${dollars(top.spent)}.`;
 
   const lines = categories
-    .map((c) => `  ${c.name}: ${dollars(c.spent)} of ${dollars(c.budgeted)} — ${c.available < 0 ? 'Over Budget' : 'On Track'}`)
+    .map((c) => {
+      if (c.available < 0) {
+        return `  ${c.name}: spent ${dollars(c.spent)} — over by ${dollars(c.available)}`;
+      }
+      return `  ${c.name}: spent ${dollars(c.spent)} — ${dollars(c.available)} remaining`;
+    })
     .join('\n');
 
   const body = [narrative, '', 'Category Breakdown:', lines].join('\n');
