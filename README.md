@@ -80,21 +80,39 @@ Prefix commands let you interact with the agent directly from Discord without re
 | `!summary` | Weekly spending digest |
 | `!overspent` | Check overspent categories |
 | `!allocate` | Run pay period allocation |
-| `!cleanup [months]` | Preview budget cleanup (dry-run) |
-| `!cleanup [months] --confirm` | Execute budget cleanup |
+| `!cleanup [months]` | Start interactive budget cleanup (preview + buttons) |
 | `!uncategorized` | List uncategorized transactions (no LLM categorization) |
 
 When `ENABLE_LLM=false`, freeform messages will prompt you to use `!help`. When the LLM is enabled, freeform messages are still handled by the AI agent as before — prefix commands simply provide a faster, deterministic alternative.
+
+### Cleanup Flow
+
+Budget cleanup uses an interactive button-driven flow — the same experience whether triggered via `!cleanup` or by asking the LLM to clean up. No extra LLM calls are needed for the confirmation steps.
+
+```
+!cleanup 24  (or ask the LLM: "clean up anything older than 2 years")
+      │
+      ▼
+Preview: transaction/category/account counts
+  [Cancel]  [Export Backup]  [Proceed]
+      │            │              │
+      ▼            ▼              ▼
+   Done     ZIP attached      Execute cleanup
+              to thread        (with progress)
+                │
+                ▼
+          [Cancel] [Proceed]
+```
+
+The **Export Backup** button attaches a full Actual Budget database ZIP to the thread before you commit to deletion.
 
 ### Agent Tools
 
 The following tools are available to the AI agent when responding to Discord messages. They can be triggered by chatting with the bot in any budget thread.
 
-**cleanup_budget** — Runs budget maintenance: prunes old transactions, removes hidden categories with no transaction history, and removes closed accounts with no transaction history. Always previews before deleting. Example: _"Clean up anything older than 2 years"_
+**cleanup_budget** — Starts the interactive cleanup flow above. Example: _"Clean up anything older than 2 years"_
 
-**export_budget** — Exports the full Actual Budget database as a ZIP file attached to the Discord thread. Use this before committing a cleanup. Example: _"Export a backup of the budget"_
-
-The agent enforces a safe flow: it will always show a dry-run preview first and offer to export a backup before any data is removed. You must explicitly confirm before deletion proceeds.
+**export_budget** — Exports the full Actual Budget database as a ZIP file attached to the Discord thread. Example: _"Export a backup of the budget"_
 
 ## Budget Targets
 
