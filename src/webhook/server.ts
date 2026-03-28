@@ -41,7 +41,6 @@ export function createWebhookServer(ctx: WebhookContext) {
     standardHeaders: 'draft-7',
     legacyHeaders: false,
   });
-  app.use(limiter);
 
   app.use(
     express.json({
@@ -56,7 +55,7 @@ export function createWebhookServer(ctx: WebhookContext) {
     ready ? res.json({ status: 'ready' }) : res.status(503).json({ status: 'not ready' })
   );
 
-  app.get('/export/targets', (req: Request, res: Response) => {
+  app.get('/export/targets', limiter, (req: Request, res: Response) => {
     const sig = req.headers['x-webhook-signature'] as string | undefined;
     // For GET, sign the empty string or the path — we use empty body
     if (!sig || !verifySignature(ctx.hmacKey, '', sig)) {
@@ -69,7 +68,7 @@ export function createWebhookServer(ctx: WebhookContext) {
     res.json(data);
   });
 
-  app.post('/import/targets', (req: Request & { rawBody?: Buffer }, res: Response) => {
+  app.post('/import/targets', limiter, (req: Request & { rawBody?: Buffer }, res: Response) => {
     const sig = req.headers['x-webhook-signature'] as string | undefined;
     const body = req.rawBody?.toString('utf-8') ?? '';
     if (!sig || !verifySignature(ctx.hmacKey, body, sig)) {
@@ -88,7 +87,7 @@ export function createWebhookServer(ctx: WebhookContext) {
     res.json({ imported: count });
   });
 
-  app.post('/admin/prune-transactions', (req: Request & { rawBody?: Buffer }, res: Response) => {
+  app.post('/admin/prune-transactions', limiter, (req: Request & { rawBody?: Buffer }, res: Response) => {
     const sig = req.headers['x-webhook-signature'] as string | undefined;
     const body = req.rawBody?.toString('utf-8') ?? '';
     if (!sig || !verifySignature(ctx.hmacKey, body, sig)) {
@@ -112,7 +111,7 @@ export function createWebhookServer(ctx: WebhookContext) {
     });
   });
 
-  app.post('/webhook', (req: Request & { rawBody?: Buffer }, res: Response) => {
+  app.post('/webhook', limiter, (req: Request & { rawBody?: Buffer }, res: Response) => {
     const sig = req.headers['x-webhook-signature'] as string | undefined;
     const body = req.rawBody?.toString('utf-8') ?? '';
 
