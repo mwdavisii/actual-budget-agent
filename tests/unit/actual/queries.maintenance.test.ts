@@ -20,6 +20,7 @@ vi.mock('../../../src/actual/client', () => {
       q: vi.fn(() => mockChain),
       deleteCategory: vi.fn(),
       deleteCategoryGroup: vi.fn(),
+      reopenAccount: vi.fn(),
       deleteAccount: vi.fn(),
       deleteTransaction: vi.fn(),
       getBudgetMonth: vi.fn(),
@@ -193,6 +194,7 @@ describe('cleanupClosedAccounts', () => {
 
     const result = await cleanupClosedAccounts(false);
 
+    expect(actualApi.reopenAccount).toHaveBeenCalledWith('a1');
     expect(actualApi.deleteAccount).toHaveBeenCalledWith('a1');
     expect(result.deleted).toBe(1);
   });
@@ -215,6 +217,7 @@ describe('cleanupClosedAccounts', () => {
       { id: 'a2', name: 'Will Succeed', closed: true },
     ] as any);
     vi.mocked(actualApi.runQuery).mockResolvedValue({ data: [] } as any);
+    vi.mocked(actualApi.reopenAccount).mockResolvedValue(undefined);
     vi.mocked(actualApi.deleteAccount)
       .mockRejectedValueOnce(new Error('locked'))
       .mockResolvedValueOnce(undefined);
