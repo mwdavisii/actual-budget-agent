@@ -2,10 +2,12 @@ import type { Client, Message } from 'discord.js';
 import { enqueueMessage } from '../agent/session';
 import { runAgent } from '../agent/index';
 import { postToThread, editMessage, getOrCreateThread } from './threads';
+import { parseCommand, executeCommand, type CommandContext } from './commands';
 import { logger } from '../logger';
 import type { SecretsConfig } from '../config';
+import type { WebhookContext } from '../webhook/server';
 
-export function registerMessageHandler(client: Client, secrets: SecretsConfig): void {
+export function registerMessageHandler(client: Client, secrets: SecretsConfig, webhookCtx: WebhookContext): void {
   client.on('messageCreate', async (message: Message) => {
     if (message.author.bot) return;
     if (message.author.id !== secrets.discordAllowedUserId) return;
@@ -27,8 +29,21 @@ export function registerMessageHandler(client: Client, secrets: SecretsConfig): 
 
     logger.info('Message received', { threadId });
 
+    // Check for prefix commands first — these work without the LLM
+    const parsed = parseCommand(message.content);
+    if (parsed) {
+      const cmdCtx: CommandContext = { client, threadId, webhookCtx };
+      try {
+        await executeCommand(parsed.name, cmdCtx, parsed.args);
+      } catch (err) {
+        logger.error('Command handler error', { command: parsed.name, threadId, err: String(err) });
+        await postToThread(client, threadId, `Command failed: ${String(err)}`).catch(() => {});
+      }
+      return;
+    }
+
     if (!secrets.enableLlm) {
-      await postToThread(client, threadId, 'LLM is disabled (`ENABLE_LLM=false`). Set `ENABLE_LLM=true` and provide an `LLM_API_KEY` to enable interactive chat.');
+      await postToThread(client, threadId, 'LLM is disabled. Use `!help` to see available commands.');
       return;
     }
 

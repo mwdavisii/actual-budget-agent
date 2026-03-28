@@ -85,10 +85,6 @@ async function main() {
     }
   }
 
-  // NOW register listeners — no race with re-post loop
-  registerInteractionHandler(discord, db, secrets, actualConfig);
-  registerMessageHandler(discord, secrets);
-
   const webhookCtx = {
     hmacKey: secrets.webhookHmacKey,
     dataDir: secrets.dataDir,
@@ -96,6 +92,10 @@ async function main() {
     actualServerUrl: actualConfig.serverUrl,
     actualPassword: actualConfig.password,
   };
+
+  // NOW register listeners — no race with re-post loop
+  registerInteractionHandler(discord, db, secrets, actualConfig);
+  registerMessageHandler(discord, secrets, webhookCtx);
   const { app, setReady } = createWebhookServer(webhookCtx);
   const PORT = parseInt(process.env['PORT'] ?? '3000', 10);
   app.listen(PORT, () => {
