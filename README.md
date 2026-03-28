@@ -67,7 +67,24 @@ The agent uses a configurable LLM (Claude, GPT, or Gemini) in specific places �
 
 **Cost implications:** With default schedules, the LLM is called ~1-2 times daily (uncategorized after bank sync, plus unfunded) and once monthly (review). Interactive Discord chat is on-demand. All other handlers run without LLM calls.
 
-**Running without an LLM:** Set `ENABLE_LLM=false` to disable all AI features. The agent will still run bank sync, overspent alerts, weekly digests, pay-period allocation, and target seeding — only interactive chat and LLM-powered analysis are skipped. No `LLM_API_KEY` is required in this mode.
+**Running without an LLM:** Set `ENABLE_LLM=false` to disable all AI features. The agent will still run bank sync, overspent alerts, weekly digests, pay-period allocation, and target seeding — only interactive chat and LLM-powered analysis are skipped. No `LLM_API_KEY` is required in this mode. Use prefix commands (below) to interact with the agent from Discord without the LLM.
+
+### Prefix Commands
+
+Prefix commands let you interact with the agent directly from Discord without requiring an LLM. They work whether `ENABLE_LLM` is `true` or `false`.
+
+| Command | Description |
+|---------|-------------|
+| `!help` | List available commands |
+| `!sync` | Trigger bank sync |
+| `!summary` | Weekly spending digest |
+| `!overspent` | Check overspent categories |
+| `!allocate` | Run pay period allocation |
+| `!cleanup [months]` | Preview budget cleanup (dry-run) |
+| `!cleanup [months] --confirm` | Execute budget cleanup |
+| `!uncategorized` | List uncategorized transactions (no LLM categorization) |
+
+When `ENABLE_LLM=false`, freeform messages will prompt you to use `!help`. When the LLM is enabled, freeform messages are still handled by the AI agent as before — prefix commands simply provide a faster, deterministic alternative.
 
 ### Agent Tools
 
