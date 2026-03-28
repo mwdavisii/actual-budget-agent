@@ -1,6 +1,6 @@
 // tests/unit/actual/queries.maintenance.test.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getRollingPruneCutoff, pruneTransactions, cleanupHiddenCategories, cleanupClosedAccounts } from '../../../src/actual/queries';
+import { getRollingPruneCutoff, pruneTransactions, cleanupHiddenCategories, cleanupClosedAccounts, setCategoryForTransaction } from '../../../src/actual/queries';
 import { actualApi } from '../../../src/actual/client';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../../src/db/schema';
@@ -25,6 +25,7 @@ vi.mock('../../../src/actual/client', () => {
       getBudgetMonth: vi.fn(),
       setBudgetAmount: vi.fn(),
       addTransactions: vi.fn(),
+      updateTransaction: vi.fn(),
     },
   };
 });
@@ -611,5 +612,41 @@ describe('pruneTransactions — phased', () => {
     expect(result.dryRun).toBe(true);
     expect(result.deleted).toBe(1);
     expect(getIncompleteCleanup(db)).toBeNull();
+  });
+});
+
+describe('setCategoryForTransaction', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('passes UUID directly to updateTransaction', async () => {
+    await setCategoryForTransaction('tx1', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+    expect(actualApi.updateTransaction).toHaveBeenCalledWith('tx1', { category: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' });
+  });
+
+  it('resolves category name to ID before updating', async () => {
+    vi.mocked(actualApi.getCategoryGroups).mockResolvedValue([
+      { categories: [{ id: 'cat-uuid-123', name: 'Dining Out' }] },
+    ] as any);
+
+    await setCategoryForTransaction('tx1', 'Dining Out');
+    expect(actualApi.getCategoryGroups).toHaveBeenCalled();
+    expect(actualApi.updateTransaction).toHaveBeenCalledWith('tx1', { category: 'cat-uuid-123' });
+  });
+
+  it('resolves category name case-insensitively', async () => {
+    vi.mocked(actualApi.getCategoryGroups).mockResolvedValue([
+      { categories: [{ id: 'cat-uuid-456', name: 'Groceries' }] },
+    ] as any);
+
+    await setCategoryForTransaction('tx1', 'groceries');
+    expect(actualApi.updateTransaction).toHaveBeenCalledWith('tx1', { category: 'cat-uuid-456' });
+  });
+
+  it('throws when category name not found', async () => {
+    vi.mocked(actualApi.getCategoryGroups).mockResolvedValue([
+      { categories: [{ id: 'cat-1', name: 'Groceries' }] },
+    ] as any);
+
+    await expect(setCategoryForTransaction('tx1', 'Nonexistent')).rejects.toThrow('Category "Nonexistent" not found');
   });
 });

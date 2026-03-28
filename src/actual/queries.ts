@@ -106,7 +106,20 @@ export async function getScheduledTransactions(): Promise<ScheduledTransaction[]
   );
 }
 
-export async function setCategoryForTransaction(txId: string, categoryId: string): Promise<void> {
+export async function setCategoryForTransaction(txId: string, categoryNameOrId: string): Promise<void> {
+  // The LLM passes category names (e.g. "Dining Out"), but the Actual API
+  // expects a category UUID. Resolve the name to an ID if needed.
+  let categoryId = categoryNameOrId;
+  if (!categoryNameOrId.match(/^[0-9a-f]{8}-/)) {
+    const groups = await actualApi.getCategoryGroups() as Array<{
+      categories: Array<{ id: string; name: string }>;
+    }>;
+    const match = groups.flatMap(g => g.categories).find(
+      c => c.name.toLowerCase() === categoryNameOrId.toLowerCase()
+    );
+    if (!match) throw new Error(`Category "${categoryNameOrId}" not found`);
+    categoryId = match.id;
+  }
   await actualApi.updateTransaction(txId, { category: categoryId });
 }
 
