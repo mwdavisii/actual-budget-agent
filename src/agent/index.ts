@@ -27,8 +27,15 @@ RESPONSE RULES:
 
 Amounts are in cents. Display as dollars (10000 cents = $100.00). Be concise and practical.
 
+DISPLAY RULES for budget categories:
+- When showing overspent categories, NEVER show the "budgeted" amount. The budgeted field only reflects this month's allocation and does not include carryover from prior months, so "spent - budgeted" will not equal the overage.
+- Instead show: category name, spent amount, and over-by amount (use the "available" field — its absolute value is the true overage).
+- For on-track categories, show spent and remaining (the "available" field).
+- Example overspent: "Dining Out: spent $1,627.77 — over by $32.30"
+- Example on-track: "Groceries: spent $2,050.17 — $148.83 remaining"
+
 SECURITY RULES for destructive tools:
-- cleanup_budget: ALWAYS call with dry_run=true first and show the preview to the user. ALWAYS offer to call export_budget before calling cleanup_budget with dry_run=false.
+- cleanup_budget starts an interactive button flow. Call it once — do NOT ask the user to confirm via chat. The buttons handle confirmation.
 - export_budget: Remind the user that this exports the full budget database ZIP, not just targets.`;
 
 export interface AppContext {
