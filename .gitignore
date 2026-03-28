@@ -1,6 +1,7 @@
 node_modules/
 dist/*
 docs/*
+!docs/images/
 *.db
 *.db-shm
 *.db-wal

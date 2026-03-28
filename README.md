@@ -2,6 +2,8 @@
 
 An AI-powered assistant for [Actual Budget](https://actualbudget.org/) that monitors spending, generates alerts, and provides budget insights via Discord and email.
 
+![Budget channel overview](docs/images/sync-confirmation.png)
+
 ## How It Works
 
 Budget Agent connects to your Actual Budget server and responds to scheduled webhook triggers. Each trigger runs a specific check (overspent categories, uncategorized transactions, etc.), and the agent uses an LLM (Claude, GPT, or Gemini) to analyze the results and post actionable proposals to a Discord channel. Critical alerts are also emailed.
@@ -52,14 +54,23 @@ The agent uses a configurable LLM (Claude, GPT, or Gemini) in specific places �
 
 **LLM-powered (via `runAgentForAlert`):**
 - **Uncategorized transactions** — the LLM analyzes each transaction and proposes a budget category, posted as a Discord approval card
+
+![Category proposal with approval buttons](docs/images/uncategorized.png)
+
 - **Unfunded bills** — the LLM summarizes which scheduled bills lack budget and suggests actions
 - **Monthly review** — the LLM generates an end-of-month spending summary with insights
 
 **Direct posting (no LLM):**
 - **Overspent categories** — posts a formatted summary directly to Discord (the LLM is not called)
+
+![Overspent categories alert](docs/images/overspent.png)
+
 - **Seed targets** — snapshots budgeted amounts to SQLite and posts confirmation + JSON backup
 - **Pay-period allocation** — deterministic math (target amounts × pay schedule), posts results directly
 - **Weekly digest** — templated summary posted to Discord; also emailed if `ENABLE_EMAIL=true`
+
+![Weekly spending summary](docs/images/weekly-summary.png)
+
 - **Bank sync** — calls the Actual Budget sync API, then triggers the uncategorized handler
 
 **Interactive Discord chat:**
@@ -106,6 +117,8 @@ Preview: transaction/category/account counts
 
 The **Export Backup** button attaches a full Actual Budget database ZIP to the thread before you commit to deletion.
 
+![Interactive cleanup flow](docs/images/cleanup.png)
+
 ### Agent Tools
 
 The following tools are available to the AI agent when responding to Discord messages. They can be triggered by chatting with the bot in any budget thread.
@@ -113,6 +126,8 @@ The following tools are available to the AI agent when responding to Discord mes
 **cleanup_budget** — Starts the interactive cleanup flow above. Example: _"Clean up anything older than 2 years"_
 
 **export_budget** — Exports the full Actual Budget database as a ZIP file attached to the Discord thread. Example: _"Export a backup of the budget"_
+
+![Budget backup export](docs/images/backup.png)
 
 ## Budget Targets
 
@@ -124,6 +139,8 @@ Budget targets provide a monthly allocation baseline the agent can reason about 
 - **Pay-period allocation** — on paydays, the agent sets budget amounts from targets: fixed bills get their full target when due, discretionary categories are split across two paychecks
 - **3rd paycheck months** — the 3rd paycheck is intentionally left unallocated for manual use (e.g., emergency fund, irregular expenses)
 - **Backup/export** — targets are automatically backed up as a JSON attachment in Discord after each monthly seed. You can also export/import via HTTP endpoints or conversational agent tools.
+
+![Pay-period allocation with targets](docs/images/targets.png)
 
 ## Agent Tools
 
