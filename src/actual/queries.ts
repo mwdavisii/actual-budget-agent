@@ -3,6 +3,7 @@ import { sanitizeObject } from '../sanitize';
 import type Database from 'better-sqlite3';
 import {
   getIncompleteCleanup,
+  getMostRecentCompleted,
   insertCleanupState,
   updateCleanupPhase,
   deleteOldCompletedStates,
@@ -149,7 +150,8 @@ export async function pruneTransactions(
   before: string,
   dryRun: boolean,
   db?: Database.Database,
-  clearState?: boolean
+  clearState?: boolean,
+  onProgress?: (count: number, total: number) => Promise<void>
 ): Promise<{ deleted: number; dryRun: boolean; sample: string[] }> {
   const result = await actualApi.runQuery(
     actualApi.q('transactions')
@@ -177,6 +179,13 @@ export async function pruneTransactions(
   if (clearState) {
     const existing = getIncompleteCleanup(db);
     if (existing) {
+      if (existing.phase !== 'pending' && rows.length < existing.transactionIds.length) {
+        throw new Error(
+          `Cannot clear state: ${existing.transactionIds.length - rows.length} transactions were already deleted ` +
+          `(snapshot had ${existing.transactionIds.length}, now ${rows.length}). ` +
+          `Restore from backup before using clear_state=true, or resume without it.`
+        );
+      }
       logger.info('Clearing incomplete cleanup state', { cutoff_date: existing.cutoffDate });
       deleteCleanupState(db, existing.cutoffDate);
     }
@@ -267,7 +276,7 @@ export async function pruneTransactions(
       updateCleanupPhase(db, before, 'deleting');
       state.phase = 'deleting';
     } else if (phase === 'deleting') {
-      await executePhaseDelete(state);
+      await executePhaseDelete(state, onProgress);
       updateCleanupPhase(db, before, 'adjustments');
       state.phase = 'adjustments';
     } else if (phase === 'adjustments') {
@@ -290,8 +299,12 @@ export async function pruneTransactions(
 
 // Phase implementations — stubbed, filled in subsequent tasks
 
-async function executePhaseDelete(state: CleanupState): Promise<void> {
+async function executePhaseDelete(
+  state: CleanupState,
+  onProgress?: (count: number, total: number) => Promise<void>
+): Promise<void> {
   logger.info('Cleanup phase started', { phase: 'deleting', cutoff_date: state.cutoffDate });
+  const total = state.transactionIds.length;
   let count = 0;
   for (const id of state.transactionIds) {
     try {
@@ -300,14 +313,30 @@ async function executePhaseDelete(state: CleanupState): Promise<void> {
       logger.warn('Transaction delete skipped', { id, error: String(err) });
     }
     count++;
-    if (count % 500 === 0) logger.info('Delete progress', { count, total: state.transactionIds.length });
+    if (count % 500 === 0) logger.info('Delete progress', { count, total });
+    if (count % 1000 === 0 && onProgress) await onProgress(count, total);
     await new Promise((r) => setImmediate(r));
   }
+  if (onProgress) await onProgress(total, total);
   logger.info('Cleanup phase complete', { phase: 'deleting', cutoff_date: state.cutoffDate, ops_count: count });
 }
 
 async function executePhaseAdjustments(state: CleanupState): Promise<void> {
   logger.info('Cleanup phase started', { phase: 'adjustments', cutoff_date: state.cutoffDate });
+
+  // Find an income category so adjustments feed "To Budget" (like starting balances)
+  const [byear, bmonth] = state.cutoffDate.split('-').map(Number);
+  const firstKeptMonth = `${byear}-${String(bmonth).padStart(2, '0')}`;
+  const budgetData = await actualApi.getBudgetMonth(firstKeptMonth) as unknown as {
+    categoryGroups: Array<{ is_income?: boolean; categories: Array<{ id: string; name: string }> }>;
+  };
+  const incomeGroup = budgetData.categoryGroups.find((g) => g.is_income);
+  const incomeCategoryId = incomeGroup?.categories[0]?.id;
+  if (!incomeCategoryId) {
+    throw new Error('No income category found — cannot create adjustment transactions that feed To Budget');
+  }
+  logger.info('Using income category for adjustments', { categoryId: incomeCategoryId });
+
   let created = 0;
   for (const [accountId, amount] of Object.entries(state.accountAdjustments)) {
     const marker = `cleanup:${state.cutoffDate}:${accountId}`;
@@ -326,6 +355,7 @@ async function executePhaseAdjustments(state: CleanupState): Promise<void> {
       amount,
       payee_name: 'Prior Balance',
       notes: marker,
+      category: incomeCategoryId,
     }]);
     created++;
     await new Promise((r) => setImmediate(r));
@@ -382,6 +412,35 @@ async function executePhaseZero(state: CleanupState): Promise<void> {
   logger.info('Cleanup phase complete', { phase: 'zeroed', cutoff_date: state.cutoffDate, ops_count: totalOps });
 }
 
+export async function revertCarryForwards(
+  db: Database.Database,
+  dryRun: boolean
+): Promise<{ cutoffDate: string; reverted: number; dryRun: boolean; sample: string[] }> {
+  const state = getMostRecentCompleted(db);
+  if (!state) throw new Error('No completed cleanup state found — nothing to revert');
+
+  const [byear, bmonth] = state.cutoffDate.split('-').map(Number);
+  const firstKeptMonth = `${byear}-${String(bmonth).padStart(2, '0')}`;
+
+  const sample: string[] = [];
+  let reverted = 0;
+
+  for (const [catId, carryForward] of Object.entries(state.categoryCarryForwards)) {
+    if (carryForward === 0) continue;
+    const original = state.firstKeptBudgets[catId] ?? 0;
+    if (sample.length < 5) {
+      sample.push(`cat:${catId} carry=${(carryForward / 100).toFixed(2)} → reset to ${(original / 100).toFixed(2)}`);
+    }
+    if (!dryRun) {
+      await actualApi.setBudgetAmount(firstKeptMonth, catId, original);
+      await new Promise((r) => setImmediate(r));
+    }
+    reverted++;
+  }
+
+  return { cutoffDate: state.cutoffDate, reverted, dryRun, sample };
+}
+
 export function getRollingPruneCutoff(months: number): string {
   const d = new Date();
   d.setDate(1);
@@ -391,7 +450,7 @@ export function getRollingPruneCutoff(months: number): string {
   return `${year}-${month}-01`;
 }
 
-export async function cleanupHiddenCategories(dryRun: boolean): Promise<{
+export async function cleanupHiddenCategories(dryRun: boolean, cutoff?: string): Promise<{
   deleted: number; names: string[]; warnings: string[];
 }> {
   const groups = await actualApi.getCategoryGroups() as Array<{
@@ -406,8 +465,10 @@ export async function cleanupHiddenCategories(dryRun: boolean): Promise<{
   for (const group of groups) {
     for (const cat of group.categories) {
       if (!cat.hidden) continue;
+      const filter: Record<string, unknown> = { category: cat.id };
+      if (cutoff) filter['date'] = { $gte: cutoff };
       const result = await actualApi.runQuery(
-        actualApi.q('transactions').filter({ category: cat.id }).options({ splits: 'none' }).select(['id'])
+        actualApi.q('transactions').filter(filter).options({ splits: 'none' }).select(['id'])
       );
       if ((result as { data: unknown[] }).data.length > 0) continue;
       if (!dryRun) {
@@ -441,7 +502,7 @@ export async function cleanupHiddenCategories(dryRun: boolean): Promise<{
   return { deleted: deletedNames.length, names: deletedNames.slice(0, 20), warnings };
 }
 
-export async function cleanupClosedAccounts(dryRun: boolean): Promise<{
+export async function cleanupClosedAccounts(dryRun: boolean, cutoff?: string): Promise<{
   deleted: number; names: string[]; warnings: string[];
 }> {
   const accounts = await actualApi.getAccounts() as Array<{ id: string; name: string; closed: boolean }>;
@@ -451,8 +512,10 @@ export async function cleanupClosedAccounts(dryRun: boolean): Promise<{
   const warnings: string[] = [];
 
   for (const account of closed) {
+    const filter: Record<string, unknown> = { account: account.id };
+    if (cutoff) filter['date'] = { $gte: cutoff };
     const result = await actualApi.runQuery(
-      actualApi.q('transactions').filter({ account: account.id }).options({ splits: 'none' }).select(['id'])
+      actualApi.q('transactions').filter(filter).options({ splits: 'none' }).select(['id'])
     );
     if ((result as { data: unknown[] }).data.length > 0) continue;
     if (!dryRun) {

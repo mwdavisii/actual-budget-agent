@@ -41,8 +41,16 @@ async function main() {
     ? createEmailClient({ host: secrets.smtpHost, port: secrets.smtpPort })
     : null!;
   if (!secrets.enableEmail) logger.info('Email disabled (ENABLE_EMAIL is not set to true)');
-  const llm = createLLMProvider(secrets.llmProvider as LLMProviderName, secrets.llmApiKey, secrets.llmModel);
-  logger.info('LLM provider initialized', { provider: secrets.llmProvider, model: secrets.llmModel ?? 'default' });
+  const llm = secrets.enableLlm
+    ? createLLMProvider(secrets.llmProvider as LLMProviderName, secrets.llmApiKey, secrets.llmModel)
+    : null!;
+  if (secrets.enableLlm) {
+    logger.info('LLM provider initialized', { provider: secrets.llmProvider, model: secrets.llmModel ?? 'default' });
+  } else {
+    logger.info('LLM disabled (ENABLE_LLM is not set to true)');
+  }
+  if (!secrets.enablePayPeriodAllocation) logger.info('Pay-period allocation disabled (ENABLE_PAY_PERIOD_ALLOCATION is not set to true)');
+  if (!secrets.enableSeedTargets) logger.info('Seed targets disabled (ENABLE_SEED_TARGETS is not set to true)');
 
   const actualConfig: ActualConfig = {
     dataDir: secrets.dataDir,

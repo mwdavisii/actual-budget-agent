@@ -9,12 +9,14 @@ import {
   cleanupHiddenCategories,
   cleanupClosedAccounts,
   pruneTransactions,
+  revertCarryForwards,
 } from '../actual/queries';
 import { getPendingProposals } from '../db/proposals';
 import { getTargets, setTarget, seedTargets, getUnderfundedCategories, exportTargets, importTargets, type TargetExport } from '../db/targets';
 import type Database from 'better-sqlite3';
 import type { Client } from 'discord.js';
 import { AttachmentBuilder } from 'discord.js';
+import { logger } from '../logger';
 
 export interface ActualConfig {
   dataDir: string;
@@ -173,6 +175,20 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description: 'Exports the Actual Budget database as a ZIP file attachment in the current Discord thread. This exports the full budget database, not the budget targets JSON.',
     parameters: { type: 'object', properties: {}, required: [] },
   },
+  {
+    name: 'revert_carry_forwards',
+    description: 'Reverts the category carry-forwards injected by the last completed cleanup_budget run. Use this when cleanup created incorrect positive balances in budget categories. ALWAYS call with dry_run=true first to preview what will be changed.',
+    parameters: {
+      type: 'object',
+      properties: {
+        dry_run: {
+          type: 'boolean',
+          description: 'If true (default), preview without making changes. Set to false to apply the revert.',
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 export async function executeTool(
@@ -284,27 +300,53 @@ export async function executeTool(
 
       const cutoff = getRollingPruneCutoff(months);
       return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
+        let progressMsg: { edit: (opts: { content: string }) => Promise<void> } | null = null;
+        const onProgress = (!dryRun && context?.discord && context?.threadId)
+          ? async (count: number, total: number) => {
+            const pct = Math.round((count / total) * 100);
+            const content = `Deleting transactions: ${count.toLocaleString()} / ${total.toLocaleString()} (${pct}%)`;
+            try {
+              if (!progressMsg) {
+                const thread = await context.discord.channels.fetch(context.threadId) as any;
+                progressMsg = await thread.send({ content });
+              } else {
+                await progressMsg.edit({ content });
+              }
+            } catch (err) {
+              logger.warn('Discord progress update failed', { error: String(err) });
+            }
+          }
+          : undefined;
+
         try {
-          const pruneResult = await pruneTransactions(cutoff, dryRun, dryRun ? undefined : db, clearState);
+          const pruneResult = await pruneTransactions(cutoff, dryRun, dryRun ? undefined : db, clearState, onProgress);
           transactions = { count: pruneResult.deleted, sample: pruneResult.sample };
         } catch (err) {
           warnings.push(`Transaction prune failed: ${String(err)}`);
         }
         try {
-          const catResult = await cleanupHiddenCategories(dryRun);
+          const catResult = await cleanupHiddenCategories(dryRun, cutoff);
           categories = { count: catResult.deleted, names: catResult.names };
           warnings.push(...catResult.warnings);
         } catch (err) {
           warnings.push(`Category cleanup failed: ${String(err)}`);
         }
         try {
-          const accResult = await cleanupClosedAccounts(dryRun);
+          const accResult = await cleanupClosedAccounts(dryRun, cutoff);
           accounts = { count: accResult.deleted, names: accResult.names };
           warnings.push(...accResult.warnings);
         } catch (err) {
           warnings.push(`Account cleanup failed: ${String(err)}`);
         }
         return { dryRun, transactions, categories, accounts, warnings };
+      });
+    }
+
+    case 'revert_carry_forwards': {
+      const dryRun = input['dry_run'] !== false;
+      return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
+        const result = await revertCarryForwards(db, dryRun);
+        return result;
       });
     }
 
