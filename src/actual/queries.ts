@@ -534,6 +534,9 @@ export async function cleanupClosedAccounts(dryRun: boolean, cutoff?: string): P
     if ((result as { data: unknown[] }).data.length > 0) continue;
     if (!dryRun) {
       try {
+        // Actual's deleteAccount calls account-close with forced=true,
+        // which silently no-ops on already-closed accounts. Reopen first.
+        await actualApi.reopenAccount(account.id);
         await actualApi.deleteAccount(account.id);
       } catch (err) {
         warnings.push(`Failed to delete account "${account.name}": ${String(err)}`);
