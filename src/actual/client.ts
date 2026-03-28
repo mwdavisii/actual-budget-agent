@@ -54,7 +54,13 @@ export async function withActual<T>(
     }
 
     logger.info('Actual Budget synced');
-    return fn();
+    const result = await fn();
+
+    // Push any mutations back to the server so other clients
+    // (e.g. the browser) see the changes immediately.
+    await actualApi.sync();
+
+    return result;
   });
 }
 
