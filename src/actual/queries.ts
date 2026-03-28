@@ -323,6 +323,20 @@ async function executePhaseDelete(
 
 async function executePhaseAdjustments(state: CleanupState): Promise<void> {
   logger.info('Cleanup phase started', { phase: 'adjustments', cutoff_date: state.cutoffDate });
+
+  // Find an income category so adjustments feed "To Budget" (like starting balances)
+  const [byear, bmonth] = state.cutoffDate.split('-').map(Number);
+  const firstKeptMonth = `${byear}-${String(bmonth).padStart(2, '0')}`;
+  const budgetData = await actualApi.getBudgetMonth(firstKeptMonth) as unknown as {
+    categoryGroups: Array<{ is_income?: boolean; categories: Array<{ id: string; name: string }> }>;
+  };
+  const incomeGroup = budgetData.categoryGroups.find((g) => g.is_income);
+  const incomeCategoryId = incomeGroup?.categories[0]?.id;
+  if (!incomeCategoryId) {
+    throw new Error('No income category found — cannot create adjustment transactions that feed To Budget');
+  }
+  logger.info('Using income category for adjustments', { categoryId: incomeCategoryId });
+
   let created = 0;
   for (const [accountId, amount] of Object.entries(state.accountAdjustments)) {
     const marker = `cleanup:${state.cutoffDate}:${accountId}`;
@@ -341,6 +355,7 @@ async function executePhaseAdjustments(state: CleanupState): Promise<void> {
       amount,
       payee_name: 'Prior Balance',
       notes: marker,
+      category: incomeCategoryId,
     }]);
     created++;
     await new Promise((r) => setImmediate(r));

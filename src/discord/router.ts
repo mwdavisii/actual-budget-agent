@@ -27,6 +27,11 @@ export function registerMessageHandler(client: Client, secrets: SecretsConfig): 
 
     logger.info('Message received', { threadId });
 
+    if (!secrets.enableLlm) {
+      await postToThread(client, threadId, 'LLM is disabled (`ENABLE_LLM=false`). Set `ENABLE_LLM=true` and provide an `LLM_API_KEY` to enable interactive chat.');
+      return;
+    }
+
     try {
       const ack = await postToThread(client, threadId, '⏳ On it…');
       const reply = await enqueueMessage(

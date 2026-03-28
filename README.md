@@ -8,16 +8,16 @@ Budget Agent connects to your Actual Budget server and responds to scheduled web
 
 ### Alert Types
 
-| Trigger | Schedule | Description |
-|---------|----------|-------------|
-| **Bank Sync** | Daily 6am | Syncs all on-budget accounts via SimpleFIN, then runs uncategorized categorization |
-| **Uncategorized** | Runs as part of bank sync | Transactions missing a category — agent proposes categories via Discord approval cards |
-| **Overspent** | Daily 8am | Categories where spending exceeds the budget |
-| **Unfunded** | Daily 8am | Scheduled bills with no budget allocated |
-| **Seed Targets** | 1st of month 7am | Captures current budgeted amounts as target baseline |
-| **Pay-Period Allocation** | Daily 6:30am | On paydays, allocates budget from targets (fixed bills + discretionary split) |
-| **Monthly Review** | 1st of month | End-of-month budget summary |
-| **Weekly Digest** | Monday 7am | Weekly spending summary (Discord + email if enabled) |
+| Trigger | Schedule | Requires | Description |
+|---------|----------|----------|-------------|
+| **Bank Sync** | Daily 6am | — | Syncs all on-budget accounts via SimpleFIN, then runs uncategorized categorization |
+| **Uncategorized** | After bank sync | LLM | Transactions missing a category — agent proposes categories via Discord approval cards |
+| **Overspent** | Daily 8am | — | Categories where spending exceeds the budget |
+| **Unfunded** | Daily 8am | LLM | Scheduled bills with no budget allocated |
+| **Seed Targets** | 1st of month 7am | `ENABLE_SEED_TARGETS` | Captures current budgeted amounts as target baseline |
+| **Pay-Period Allocation** | Daily 6:30am | `ENABLE_PAY_PERIOD_ALLOCATION` | On paydays, allocates budget from targets (fixed bills + discretionary split) |
+| **Monthly Review** | 1st of month | LLM | End-of-month budget summary |
+| **Weekly Digest** | Monday 7am | — | Weekly spending summary (Discord + email if enabled) |
 
 ### Architecture
 
@@ -66,6 +66,8 @@ The agent uses a configurable LLM (Claude, GPT, or Gemini) in specific places �
 - Any message from the allowed user in the budget channel or a thread triggers the LLM agent with full tool access. If the thread was created by a direct-posting handler (like overspent), the agent fetches the thread's message history for context on first reply.
 
 **Cost implications:** With default schedules, the LLM is called ~1-2 times daily (uncategorized after bank sync, plus unfunded) and once monthly (review). Interactive Discord chat is on-demand. All other handlers run without LLM calls.
+
+**Running without an LLM:** Set `ENABLE_LLM=false` to disable all AI features. The agent will still run bank sync, overspent alerts, weekly digests, pay-period allocation, and target seeding — only interactive chat and LLM-powered analysis are skipped. No `LLM_API_KEY` is required in this mode.
 
 ### Agent Tools
 
@@ -149,7 +151,7 @@ npm run dev     # requires .env with secrets
 
 | Variable | Description |
 |----------|-------------|
-| `LLM_API_KEY` | API key for the chosen LLM provider |
+| `LLM_API_KEY` | API key for the chosen LLM provider (not required if `ENABLE_LLM=false`) |
 | `DISCORD_TOKEN` | Discord bot token |
 | `DISCORD_ALLOWED_USER_ID` | Numeric Discord user ID allowed to interact |
 | `DISCORD_BUDGET_CHANNEL_ID` | Channel for budget alerts |
@@ -163,6 +165,9 @@ npm run dev     # requires .env with secrets
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `ENABLE_LLM` | `true` | Set to `false` to disable all LLM features (interactive chat, uncategorized categorization, unfunded analysis, monthly review). `LLM_API_KEY` is not required when disabled. Direct-posting handlers (overspent, weekly digest, bank sync, pay-period allocation) still work. |
+| `ENABLE_PAY_PERIOD_ALLOCATION` | `true` | Set to `false` to disable automatic pay-period budget allocation on paydays |
+| `ENABLE_SEED_TARGETS` | `true` | Set to `false` to disable automatic monthly target seeding |
 | `LLM_PROVIDER` | `anthropic` | AI provider: `anthropic`, `openai`, or `gemini` |
 | `LLM_MODEL` | per-provider | Model override (defaults: `claude-sonnet-4-6`, `gpt-4o`, `gemini-2.5-flash`) |
 | `ENABLE_EMAIL` | `false` | Set to `true` to enable email alerts (requires SMTP vars below) |

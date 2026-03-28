@@ -326,7 +326,11 @@ describe('pruneTransactions — phased', () => {
         { id: 'tx1', date: '2024-01-15', payee: 'Store', amount: -5000, category: 'cat1', account: 'acc1' },
       ],
     } as any);
-    vi.mocked(actualApi.getBudgetMonth).mockResolvedValue({ categoryGroups: [] } as any);
+    vi.mocked(actualApi.getBudgetMonth).mockResolvedValue({
+      categoryGroups: [
+        { is_income: true, categories: [{ id: 'income1', name: 'Income' }] },
+      ],
+    } as any);
     vi.mocked(actualApi.getAccounts).mockResolvedValue([] as any);
 
     await pruneTransactions('2024-04-01', false, db);
@@ -362,12 +366,17 @@ describe('pruneTransactions — phased', () => {
     });
 
     vi.mocked(actualApi.addTransactions).mockResolvedValue([] as any);
-    vi.mocked(actualApi.getBudgetMonth).mockResolvedValue({ categoryGroups: [] } as any);
+    vi.mocked(actualApi.getBudgetMonth).mockResolvedValue({
+      categoryGroups: [
+        { is_income: true, categories: [{ id: 'income1', name: 'Income' }] },
+        { is_income: false, categories: [{ id: 'cat1' }, { id: 'cat2' }] },
+      ],
+    } as any);
     vi.mocked(actualApi.getAccounts).mockResolvedValue([] as any);
 
     await pruneTransactions('2024-04-01', false, db);
 
-    // Only acc1 should get a new transaction
+    // Only acc1 should get a new transaction (acc2 already exists)
     expect(actualApi.addTransactions).toHaveBeenCalledTimes(1);
     expect(actualApi.addTransactions).toHaveBeenCalledWith('acc1', [
       expect.objectContaining({
@@ -375,6 +384,7 @@ describe('pruneTransactions — phased', () => {
         amount: -8000,
         payee_name: 'Prior Balance',
         notes: expect.stringContaining('cleanup:2024-04-01:acc1'),
+        category: 'income1',
       }),
     ]);
   });
@@ -459,7 +469,11 @@ describe('pruneTransactions — phased', () => {
 
     vi.mocked(actualApi.runQuery).mockResolvedValue({ data: [] } as any);
     vi.mocked(actualApi.addTransactions).mockResolvedValue([] as any);
-    vi.mocked(actualApi.getBudgetMonth).mockResolvedValue({ categoryGroups: [] } as any);
+    vi.mocked(actualApi.getBudgetMonth).mockResolvedValue({
+      categoryGroups: [
+        { is_income: true, categories: [{ id: 'income1', name: 'Income' }] },
+      ],
+    } as any);
     vi.mocked(actualApi.getAccounts).mockResolvedValue([] as any);
 
     await pruneTransactions('2024-04-01', false, db);
@@ -549,7 +563,10 @@ describe('pruneTransactions — phased', () => {
     } as any);
 
     vi.mocked(actualApi.getBudgetMonth).mockResolvedValue({
-      categoryGroups: [{ is_income: false, categories: [{ id: 'cat1', balance: 50000, budgeted: 10000 }] }],
+      categoryGroups: [
+        { is_income: true, categories: [{ id: 'income1', name: 'Income', balance: 0, budgeted: 0 }] },
+        { is_income: false, categories: [{ id: 'cat1', balance: 50000, budgeted: 10000 }] },
+      ],
     } as any);
 
     vi.mocked(actualApi.getAccounts).mockResolvedValue([
