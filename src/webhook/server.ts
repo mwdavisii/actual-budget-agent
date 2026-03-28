@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { verifySignature } from './hmac';
 import { dispatchCheckType } from './handlers/index';
 import { exportTargets, importTargets, type TargetExport } from '../db/targets';
@@ -33,6 +34,14 @@ export function createWebhookServer(ctx: WebhookContext) {
   let ready = false;
 
   const app = express();
+
+  const limiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 30,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+  });
+  app.use(limiter);
 
   app.use(
     express.json({
