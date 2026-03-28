@@ -93,8 +93,9 @@ export function createWebhookServer(ctx: WebhookContext) {
       return;
     }
     res.json({ accepted: true, before, dryRun });
+    const { db } = getAppContext();
     withActual(ctx.dataDir, ctx.budgetId, ctx.actualServerUrl, ctx.actualPassword, () =>
-      pruneTransactions(before, dryRun)
+      pruneTransactions(before, dryRun, dryRun ? undefined : db)
     ).then((result) => {
       logger.info('Prune transactions complete', result);
     }).catch((err: unknown) => {

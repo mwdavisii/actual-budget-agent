@@ -49,6 +49,14 @@ export function deleteCleanupState(db: Database.Database, cutoffDate: string): v
   db.prepare('DELETE FROM cleanup_state WHERE cutoff_date = ?').run(cutoffDate);
 }
 
+export function getMostRecentCompleted(db: Database.Database): CleanupState | null {
+  const row = db.prepare(
+    "SELECT * FROM cleanup_state WHERE phase = 'complete' ORDER BY updated_at DESC LIMIT 1"
+  ).get() as Record<string, string> | undefined;
+  if (!row) return null;
+  return deserialize(row);
+}
+
 export function deleteOldCompletedStates(db: Database.Database): void {
   db.prepare(
     "DELETE FROM cleanup_state WHERE phase = 'complete' AND updated_at < datetime('now', '-30 days')"

@@ -77,9 +77,9 @@ describe('executeTool — cleanup_budget', () => {
     expect(result.categories.count).toBe(2);
     expect(result.accounts.count).toBe(1);
     expect(result.warnings).toHaveLength(0);
-    expect(pruneTransactions).toHaveBeenCalledWith('2024-04-01', true, undefined, false);
-    expect(cleanupHiddenCategories).toHaveBeenCalledWith(true);
-    expect(cleanupClosedAccounts).toHaveBeenCalledWith(true);
+    expect(pruneTransactions).toHaveBeenCalledWith('2024-04-01', true, undefined, false, undefined);
+    expect(cleanupHiddenCategories).toHaveBeenCalledWith(true, '2024-04-01');
+    expect(cleanupClosedAccounts).toHaveBeenCalledWith(true, '2024-04-01');
   });
 
   it('dry_run defaults to true when omitted', async () => {
@@ -99,7 +99,7 @@ describe('executeTool — cleanup_budget', () => {
     const db = makeDb();
     await executeTool('cleanup_budget', { months: 24, dry_run: false, clear_state: true }, actualConfig, db, noop);
 
-    expect(pruneTransactions).toHaveBeenCalledWith('2024-04-01', false, db, true);
+    expect(pruneTransactions).toHaveBeenCalledWith('2024-04-01', false, db, true, undefined);
   });
 
   it('merges warnings from all phases and continues on phase-level failure', async () => {
