@@ -83,7 +83,7 @@ export function registerInteractionHandler(
 
     const messageId = interaction.message.id;
     const proposal = db
-      .prepare("SELECT * FROM pending_proposals WHERE message_id = ? AND status = 'pending'")
+      .prepare("SELECT * FROM pending_proposals WHERE message_id = ? AND status = 'pending' AND type = 'category'")
       .get(messageId) as { id: string; tx_id: string; category: string; thread_id: string } | undefined;
 
     if (!proposal) {
