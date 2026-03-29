@@ -5,6 +5,7 @@ export interface SecretsConfig {
   enableLlm: boolean;
   enablePayPeriodAllocation: boolean;
   enableSeedTargets: boolean;
+  enableStalePending: boolean;
   llmProvider: string;
   llmApiKey: string;
   llmModel?: string;
@@ -30,6 +31,8 @@ export interface DynamicConfig {
   proposalTtlHours: number;
   payFrequencyDays: number;
   lastPayDate: string;
+  stalePendingAgeDays: number;
+  stalePendingCategories: string[];
 }
 
 const CONFIGMAP_PATH = process.env['CONFIGMAP_PATH'];
@@ -42,12 +45,15 @@ function requireEnv(name: string): string {
 
 function envDefaults(): DynamicConfig {
   const categories = process.env['EMAIL_CATEGORIES'];
+  const stalePendingCats = process.env['STALE_PENDING_CATEGORIES'];
   return {
     overspendThresholdDollars: parseInt(process.env['OVERSPEND_THRESHOLD_DOLLARS'] ?? '50', 10),
     emailCategories: categories ? categories.split(',').map((s) => s.trim()) : ['Dining Out', 'Groceries'],
     proposalTtlHours: parseInt(process.env['PROPOSAL_TTL_HOURS'] ?? '24', 10),
     payFrequencyDays: parseInt(process.env['PAY_FREQUENCY_DAYS'] ?? '14', 10),
     lastPayDate: process.env['LAST_PAY_DATE'] ?? '2025-01-03',
+    stalePendingAgeDays: parseInt(process.env['STALE_PENDING_AGE_DAYS'] ?? '5', 10),
+    stalePendingCategories: stalePendingCats ? stalePendingCats.split(',').map((s) => s.trim()) : ['Dining Out'],
   };
 }
 
@@ -56,10 +62,12 @@ export function getSecrets(): SecretsConfig {
   const enableLlm = (process.env['ENABLE_LLM'] ?? 'true').toLowerCase() === 'true';
   const enablePayPeriodAllocation = (process.env['ENABLE_PAY_PERIOD_ALLOCATION'] ?? 'true').toLowerCase() === 'true';
   const enableSeedTargets = (process.env['ENABLE_SEED_TARGETS'] ?? 'true').toLowerCase() === 'true';
+  const enableStalePending = (process.env['ENABLE_STALE_PENDING'] ?? 'false').toLowerCase() === 'true';
   return {
     enableLlm,
     enablePayPeriodAllocation,
     enableSeedTargets,
+    enableStalePending,
     llmProvider: process.env['LLM_PROVIDER'] ?? 'anthropic',
     llmApiKey: enableLlm ? requireEnv('LLM_API_KEY') : (process.env['LLM_API_KEY'] ?? ''),
     llmModel: process.env['LLM_MODEL'] || undefined,
@@ -98,6 +106,8 @@ export function getDynamicConfig(): DynamicConfig {
       proposalTtlHours: parsed.proposalTtlHours ?? defaults.proposalTtlHours,
       payFrequencyDays: parsed.payFrequencyDays ?? defaults.payFrequencyDays,
       lastPayDate: parsed.lastPayDate ?? defaults.lastPayDate,
+      stalePendingAgeDays: parsed.stalePendingAgeDays ?? defaults.stalePendingAgeDays,
+      stalePendingCategories: parsed.stalePendingCategories ?? defaults.stalePendingCategories,
     };
   } catch (err) {
     logger.warn('Failed to read config file — using env/defaults', { path: CONFIGMAP_PATH, err: String(err) });
