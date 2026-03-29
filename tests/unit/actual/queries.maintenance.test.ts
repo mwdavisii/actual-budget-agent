@@ -16,6 +16,7 @@ vi.mock('../../../src/actual/client', () => {
     actualApi: {
       getCategoryGroups: vi.fn(),
       getAccounts: vi.fn(),
+      getPayees: vi.fn().mockResolvedValue([]),
       runQuery: vi.fn(),
       q: vi.fn(() => mockChain),
       deleteCategory: vi.fn(),
