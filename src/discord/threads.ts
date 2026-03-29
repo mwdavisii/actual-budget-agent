@@ -87,6 +87,18 @@ export async function editMessage(
   }
 }
 
+export async function postDeletionApprovalMessage(
+  thread: ThreadChannel,
+  content: string
+): Promise<Message> {
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId('approve_delete').setLabel('Approve').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('reject_delete').setLabel('Reject').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId('skip_delete').setLabel('Skip').setStyle(ButtonStyle.Secondary)
+  );
+  return thread.send({ content, components: [row] });
+}
+
 /** Post a batch of Discord messages with 1-second delay between each to respect rate limits. */
 export async function postBatch(fns: Array<() => Promise<void>>): Promise<void> {
   for (let i = 0; i < fns.length; i++) {

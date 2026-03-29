@@ -4,6 +4,7 @@ import { syncAllAccounts } from '../../actual/queries';
 import { handleUncategorized } from './uncategorized';
 import { getAppContext } from '../../agent/index';
 import { getOrCreateThread, postToThread } from '../../discord/threads';
+import { getSecrets } from '../../config';
 import { logger } from '../../logger';
 
 export async function handleBankSync(ctx: WebhookContext): Promise<void> {
@@ -35,6 +36,11 @@ export async function handleBankSync(ctx: WebhookContext): Promise<void> {
 
   if (result.synced.length > 0) {
     await handleUncategorized(ctx);
+    const secrets2 = getSecrets();
+    if (secrets2.enableStalePending) {
+      const { handleStalePending } = await import('./stale_pending');
+      await handleStalePending(ctx);
+    }
   } else {
     logger.warn('No accounts synced successfully — skipping uncategorized check');
   }
