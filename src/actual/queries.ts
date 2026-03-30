@@ -177,8 +177,11 @@ export async function pruneTransactions(
     category: string | null; account: string;
   }> }).data;
 
+  const payees = await actualApi.getPayees() as Array<{ id: string; name: string }>;
+  const payeeMap = Object.fromEntries(payees.map(p => [p.id, p.name]));
+
   const sample = rows.slice(0, 5).map(
-    (r) => `${r.date} ${r.payee ?? '(no payee)'} $${(r.amount / 100).toFixed(2)}`
+    (r) => `${r.date} ${payeeMap[r.payee] ?? r.payee ?? '(no payee)'} $${(r.amount / 100).toFixed(2)}`
   );
 
   if (dryRun) {
