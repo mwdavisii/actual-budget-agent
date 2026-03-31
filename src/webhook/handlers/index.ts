@@ -43,6 +43,11 @@ export async function dispatchCheckType(payload: WebhookPayload, ctx: WebhookCon
       const { handleAllocatePayPeriod } = await import('./allocate_budget');
       return handleAllocatePayPeriod(ctx);
     }
+    case 'stale_pending': {
+      if (!secrets.enableStalePending) { logger.info('Skipping stale pending — disabled'); return; }
+      const { handleStalePending } = await import('./stale_pending');
+      return handleStalePending(ctx);
+    }
     default:
       logger.warn('Unknown checkType', { checkType: (payload as { checkType: string }).checkType });
   }

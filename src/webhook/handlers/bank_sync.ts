@@ -35,6 +35,10 @@ export async function handleBankSync(ctx: WebhookContext): Promise<void> {
 
   if (result.synced.length > 0) {
     await handleUncategorized(ctx);
+    if (secrets.enableStalePending) {
+      const { handleStalePending } = await import('./stale_pending');
+      await handleStalePending(ctx);
+    }
   } else {
     logger.warn('No accounts synced successfully — skipping uncategorized check');
   }

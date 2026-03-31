@@ -35,7 +35,7 @@ export function createProposal(
 
 export function getPendingProposals(db: Database.Database): Proposal[] {
   return (
-    db.prepare("SELECT * FROM pending_proposals WHERE status = 'pending'").all() as Array<{
+    db.prepare("SELECT * FROM pending_proposals WHERE status = 'pending' AND (type = 'category' OR type IS NULL)").all() as Array<{
       id: string; tx_id: string; category: string; reason: string;
       thread_id: string; message_id: string; status: string; expires_at: number;
     }>
@@ -48,7 +48,7 @@ export function getPendingProposals(db: Database.Database): Proposal[] {
 export function hasActiveProposal(db: Database.Database, txId: string): boolean {
   const now = Math.floor(Date.now() / 1000);
   const row = db.prepare(
-    "SELECT 1 FROM pending_proposals WHERE tx_id = ? AND status = 'pending' AND expires_at > ? LIMIT 1"
+    "SELECT 1 FROM pending_proposals WHERE tx_id = ? AND status = 'pending' AND (type = 'category' OR type IS NULL) AND expires_at > ? LIMIT 1"
   ).get(txId, now);
   return row != null;
 }
@@ -56,7 +56,7 @@ export function hasActiveProposal(db: Database.Database, txId: string): boolean 
 export function getActiveProposal(db: Database.Database, txId: string): Proposal | null {
   const now = Math.floor(Date.now() / 1000);
   const row = db.prepare(
-    "SELECT * FROM pending_proposals WHERE tx_id = ? AND status = 'pending' AND expires_at > ? LIMIT 1"
+    "SELECT * FROM pending_proposals WHERE tx_id = ? AND status = 'pending' AND (type = 'category' OR type IS NULL) AND expires_at > ? LIMIT 1"
   ).get(txId, now) as { id: string; tx_id: string; category: string; reason: string; thread_id: string; message_id: string; status: string; expires_at: number } | undefined;
   if (!row) return null;
   return {

@@ -51,6 +51,7 @@ async function main() {
   }
   if (!secrets.enablePayPeriodAllocation) logger.info('Pay-period allocation disabled (ENABLE_PAY_PERIOD_ALLOCATION is not set to true)');
   if (!secrets.enableSeedTargets) logger.info('Seed targets disabled (ENABLE_SEED_TARGETS is not set to true)');
+  if (!secrets.enableStalePending) logger.info('Stale pending detection disabled (ENABLE_STALE_PENDING is not set to true)');
 
   const actualConfig: ActualConfig = {
     dataDir: secrets.dataDir,

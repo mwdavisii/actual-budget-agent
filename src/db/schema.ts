@@ -22,6 +22,9 @@ const DDL_STATEMENTS = [
     expires_at   INTEGER NOT NULL,
     created_at   INTEGER NOT NULL DEFAULT (unixepoch())
   )`,
+  // Migration: add type and matched_tx_id columns to pending_proposals
+  `ALTER TABLE pending_proposals ADD COLUMN type TEXT NOT NULL DEFAULT 'category'`,
+  `ALTER TABLE pending_proposals ADD COLUMN matched_tx_id TEXT`,
   `CREATE TABLE IF NOT EXISTS budget_targets (
     category_id   TEXT PRIMARY KEY,
     category_name TEXT NOT NULL,
@@ -43,6 +46,15 @@ const DDL_STATEMENTS = [
 
 export function runMigrations(db: Database.Database): void {
   for (const sql of DDL_STATEMENTS) {
-    db.prepare(sql).run();
+    try {
+      db.prepare(sql).run();
+    } catch (err: unknown) {
+      // ALTER TABLE fails if column already exists — that's expected on restart
+      const msg = err instanceof Error ? err.message : String(err);
+      if (sql.startsWith('ALTER TABLE') && msg.includes('duplicate column')) {
+        continue;
+      }
+      throw err;
+    }
   }
 }

@@ -17,7 +17,8 @@ export interface WebhookPayload {
     | 'weekly_digest'
     | 'bank_sync'
     | 'seed_targets'
-    | 'allocate_pay_period';
+    | 'allocate_pay_period'
+    | 'stale_pending';
   triggeredAt: string;
 }
 
