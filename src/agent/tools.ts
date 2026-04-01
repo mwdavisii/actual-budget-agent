@@ -67,6 +67,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: { type: 'object', properties: {}, required: [] },
   },
   {
+    name: 'getCategories',
+    description: 'Fetch all available budget category groups and their categories from Actual Budget. Call this once before proposing any categories to ensure you only propose valid category names.',
+    parameters: { type: 'object', properties: {}, required: [] },
+  },
+  {
     name: 'proposeCategory',
     description: 'Propose a category for a transaction. Posts a Discord approval message. Do NOT call applyCategory directly.',
     parameters: {
@@ -210,6 +215,17 @@ export async function executeTool(
 
     case 'getPendingProposals':
       return getPendingProposals(db);
+
+    case 'getCategories':
+      return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
+        const groups = await actualApi.getCategoryGroups();
+        return groups
+          .filter(g => !g.hidden)
+          .map(g => ({
+            group: g.name,
+            categories: (g.categories ?? []).filter(c => !c.hidden).map(c => c.name),
+          }));
+      });
 
     case 'proposeCategory':
       return proposeCategoryFn(
