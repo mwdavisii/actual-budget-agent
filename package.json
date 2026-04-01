@@ -21,7 +21,7 @@
   "type": "commonjs",
   "dependencies": {
     "@actual-app/api": "^26.3.0",
-    "@anthropic-ai/sdk": "^0.80.0",
+    "@anthropic-ai/sdk": "^0.81.0",
     "@discordjs/builders": "^1.13.1",
     "@discordjs/rest": "^2.4.0",
     "@google/generative-ai": "^0.24.1",
