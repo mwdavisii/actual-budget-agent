@@ -18,6 +18,7 @@ Budget Agent connects to your Actual Budget server and responds to scheduled web
 | **Unfunded** | Daily 8am | LLM | Scheduled bills with no budget allocated |
 | **Seed Targets** | 1st of month 7am | `ENABLE_SEED_TARGETS` | Captures current budgeted amounts as target baseline |
 | **Pay-Period Allocation** | Daily 6:30am | `ENABLE_PAY_PERIOD_ALLOCATION` | On paydays, allocates budget from targets (fixed bills + discretionary split) |
+| **Stale Pending** | After bank sync | `ENABLE_STALE_PENDING` | Detects transactions stuck in pending state longer than a configurable threshold and posts Discord approval cards to flag or delete them |
 | **Monthly Review** | 1st of month | LLM | End-of-month budget summary |
 | **Weekly Digest** | Monday 7am | — | Weekly spending summary (Discord + email if enabled) |
 
@@ -148,6 +149,7 @@ In addition to scheduled webhooks, the agent exposes conversational tools for Di
 
 | Tool | Description |
 |------|-------------|
+| `getCategories` | Fetch all available budget category groups and their categories — agent calls this before proposing categories |
 | `getBudgetTargets` | Retrieve stored monthly targets for all categories |
 | `setBudgetTarget` | Update the target amount for a specific category |
 | `seedBudgetTargets` | Snapshot current budgeted amounts as the new target baseline |
@@ -220,6 +222,7 @@ npm run dev     # requires .env with secrets
 | `ENABLE_LLM` | `true` | Set to `false` to disable all LLM features (interactive chat, uncategorized categorization, unfunded analysis, monthly review). `LLM_API_KEY` is not required when disabled. Direct-posting handlers (overspent, weekly digest, bank sync, pay-period allocation) still work. |
 | `ENABLE_PAY_PERIOD_ALLOCATION` | `true` | Set to `false` to disable automatic pay-period budget allocation on paydays |
 | `ENABLE_SEED_TARGETS` | `true` | Set to `false` to disable automatic monthly target seeding |
+| `ENABLE_STALE_PENDING` | `false` | Set to `true` to enable stale pending transaction detection (runs after bank sync) |
 | `LLM_PROVIDER` | `anthropic` | AI provider: `anthropic`, `openai`, or `gemini` |
 | `LLM_MODEL` | per-provider | Model override (defaults: `claude-sonnet-4-6`, `gpt-4o`, `gemini-2.5-flash`) |
 | `ENABLE_EMAIL` | `false` | Set to `true` to enable email alerts (requires SMTP vars below) |
@@ -241,6 +244,8 @@ These env vars control agent behavior. All are optional with sensible defaults.
 | `PROPOSAL_TTL_HOURS` | `24` | Hours before a pending proposal expires and can be re-proposed |
 | `PAY_FREQUENCY_DAYS` | `14` | Days between paychecks (e.g. 14 for biweekly, 7 for weekly) |
 | `LAST_PAY_DATE` | `2025-01-03` | A known past payday (any Friday works). Used as an anchor to compute your pay schedule — the agent counts forward by `PAY_FREQUENCY_DAYS` to determine future paydays. |
+| `STALE_PENDING_AGE_DAYS` | `5` | Days a transaction must stay in pending state before being flagged |
+| `STALE_PENDING_CATEGORIES` | `Dining Out` | Comma-delimited category names to monitor for stale pending transactions |
 
 **Optional file override:** If `CONFIGMAP_PATH` is set to a JSON file path, values in that file take precedence over env vars. This supports hot-reload for Kubernetes ConfigMaps without pod restart.
 
@@ -297,7 +302,7 @@ The agent responds to HMAC-signed webhook POSTs. Without Kubernetes CronJobs, us
 0 6 * * * BODY='{"checkType":"bank_sync","triggeredAt":"'$(date -u +\%Y-\%m-\%dT\%H:\%M:\%SZ)'"}' && SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_HMAC_KEY" | sed 's/^.* //')" && curl -sf -X POST -H "Content-Type: application/json" -H "X-Webhook-Signature: $SIG" -d "$BODY" http://localhost:3000/webhook
 ```
 
-Available `checkType` values: `bank_sync`, `allocate_pay_period`, `seed_targets`, `overspent_categories`, `unfunded_bills`, `monthly_review`, `weekly_digest`.
+Available `checkType` values: `bank_sync`, `allocate_pay_period`, `seed_targets`, `overspent_categories`, `unfunded_bills`, `monthly_review`, `weekly_digest`, `stale_pending`.
 
 #### Exporting & Importing Budget Targets
 
