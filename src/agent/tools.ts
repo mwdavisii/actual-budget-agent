@@ -17,6 +17,8 @@ import type Database from 'better-sqlite3';
 import type { Client } from 'discord.js';
 import { AttachmentBuilder } from 'discord.js';
 import { logger } from '../logger';
+import { buildScheduledTransactionsCsv } from '../actual/csv';
+import { attachCsvToThread } from '../discord/attachments';
 
 export interface ActualConfig {
   dataDir: string;
@@ -166,6 +168,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
       required: ['months'],
     },
+  },
+  {
+    name: 'exportScheduledTransactionsCsv',
+    description: 'Exports upcoming scheduled transactions as a CSV file attached to the current Discord thread. Use when the user asks for a CSV/spreadsheet of their scheduled transactions or upcoming bills.',
+    parameters: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'export_budget',
@@ -326,6 +333,21 @@ export async function executeTool(
       return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
         const result = await revertCarryForwards(db, dryRun);
         return result;
+      });
+    }
+
+    case 'exportScheduledTransactionsCsv': {
+      if (!context?.discord || !context?.threadId) {
+        return { error: 'No Discord context available for exportScheduledTransactionsCsv' };
+      }
+      const { discord, threadId } = context;
+      return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
+        const csv = await buildScheduledTransactionsCsv();
+        const rowCount = csv.split('\n').length - 2;
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const filename = `scheduled-transactions-${dateStr}.csv`;
+        await attachCsvToThread(discord, threadId, filename, csv);
+        return { success: true, filename, rowCount };
       });
     }
 
