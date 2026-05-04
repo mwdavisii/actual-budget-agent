@@ -27,6 +27,9 @@ vi.mock('../../../src/actual/client', () => {
       getAccounts: vi.fn().mockResolvedValue([]),
       runQuery: vi.fn().mockResolvedValue({ data: [] }),
       q: vi.fn(() => mockChain),
+      getSchedules: vi.fn().mockResolvedValue([]),
+      getPayees: vi.fn().mockResolvedValue([]),
+      getCategoryGroups: vi.fn().mockResolvedValue([]),
     },
   };
 });
@@ -36,6 +39,11 @@ vi.mock('../../../src/actual/queries', () => ({
   pruneTransactions: vi.fn().mockResolvedValue({ deleted: 0, dryRun: true, sample: [] }),
   cleanupHiddenCategories: vi.fn().mockResolvedValue({ deleted: 0, names: [], warnings: [] }),
   cleanupClosedAccounts: vi.fn().mockResolvedValue({ deleted: 0, names: [], warnings: [] }),
+  getScheduledTransactions: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('../../../src/discord/attachments', () => ({
+  attachCsvToThread: vi.fn(),
 }));
 
 vi.mock('../../../src/agent/index', () => ({
@@ -171,5 +179,53 @@ describe('executeCommand', () => {
   it('does nothing for unknown command', async () => {
     await executeCommand('nonexistent', mockCtx, []);
     expect(postToThread).not.toHaveBeenCalled();
+  });
+});
+
+import { attachCsvToThread } from '../../../src/discord/attachments';
+import { getScheduledTransactions } from '../../../src/actual/queries';
+import { actualApi } from '../../../src/actual/client';
+
+describe('!scheduled-csv command', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('attaches a CSV with todays date when there are scheduled transactions', async () => {
+    vi.mocked(getScheduledTransactions).mockResolvedValue([
+      { id: 's1', payee: 'p1', amount: -1000, nextDate: '2026-06-01', category: 'c1' },
+    ] as any);
+    vi.mocked(actualApi.getPayees).mockResolvedValue([{ id: 'p1', name: 'Comcast' }] as any);
+    vi.mocked(actualApi.getCategoryGroups).mockResolvedValue([
+      { name: 'Bills', categories: [{ id: 'c1', name: 'Internet' }] },
+    ] as any);
+
+    await executeCommand('scheduled-csv', mockCtx, []);
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    expect(attachCsvToThread).toHaveBeenCalledWith(
+      mockCtx.client,
+      'test-thread',
+      `scheduled-transactions-${dateStr}.csv`,
+      expect.stringContaining('Next Date,Payee,Category,Amount'),
+    );
+    expect(postToThread).not.toHaveBeenCalled();
+  });
+
+  it('posts a fallback message and does not attach when there are no scheduled transactions', async () => {
+    vi.mocked(getScheduledTransactions).mockResolvedValue([] as any);
+    vi.mocked(actualApi.getPayees).mockResolvedValue([] as any);
+    vi.mocked(actualApi.getCategoryGroups).mockResolvedValue([] as any);
+
+    await executeCommand('scheduled-csv', mockCtx, []);
+
+    expect(attachCsvToThread).not.toHaveBeenCalled();
+    expect(postToThread).toHaveBeenCalledWith(
+      mockCtx.client,
+      'test-thread',
+      'No scheduled transactions found.',
+    );
+  });
+
+  it('is parsed as a single command name with hyphen', () => {
+    expect(parseCommand('!scheduled-csv')).toEqual({ name: 'scheduled-csv', args: [] });
   });
 });
