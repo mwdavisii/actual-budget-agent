@@ -14,7 +14,11 @@ export function toCsv(headers: string[], rows: string[][]): string {
   return [headerLine, ...bodyLines].join('\n') + '\n';
 }
 
-export async function buildScheduledTransactionsCsv(): Promise<string> {
+export function scheduledTransactionsCsvFilename(date = new Date()): string {
+  return `scheduled-transactions-${date.toISOString().slice(0, 10)}.csv`;
+}
+
+export async function buildScheduledTransactionsCsv(): Promise<{ csv: string; rowCount: number }> {
   const [schedules, payees, groups] = await Promise.all([
     getScheduledTransactions(),
     actualApi.getPayees(),
@@ -42,5 +46,6 @@ export async function buildScheduledTransactionsCsv(): Promise<string> {
     return a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0;
   });
 
-  return toCsv(['Next Date', 'Payee', 'Category', 'Amount'], rows);
+  const csv = toCsv(['Next Date', 'Payee', 'Category', 'Amount'], rows);
+  return { csv, rowCount: rows.length };
 }

@@ -63,7 +63,7 @@ describe('buildScheduledTransactionsCsv', () => {
       { name: 'Bills', categories: [{ id: 'c1', name: 'Internet' }] },
     ] as any);
 
-    const csv = await buildScheduledTransactionsCsv();
+    const { csv } = await buildScheduledTransactionsCsv();
 
     expect(csv).toBe('Next Date,Payee,Category,Amount\n2026-06-01,Comcast,Internet,-125.00\n');
   });
@@ -77,7 +77,7 @@ describe('buildScheduledTransactionsCsv', () => {
       { name: 'Bills', categories: [{ id: 'c1', name: 'Internet' }] },
     ] as any);
 
-    const csv = await buildScheduledTransactionsCsv();
+    const { csv } = await buildScheduledTransactionsCsv();
 
     expect(csv).toContain('(unknown)');
   });
@@ -89,7 +89,7 @@ describe('buildScheduledTransactionsCsv', () => {
     vi.mocked(actualApi.getPayees).mockResolvedValue([{ id: 'p1', name: 'Comcast' }] as any);
     vi.mocked(actualApi.getCategoryGroups).mockResolvedValue([] as any);
 
-    const csv = await buildScheduledTransactionsCsv();
+    const { csv } = await buildScheduledTransactionsCsv();
 
     expect(csv).toContain('(uncategorized)');
   });
@@ -109,7 +109,7 @@ describe('buildScheduledTransactionsCsv', () => {
       { name: 'Bills', categories: [{ id: 'c1', name: 'Internet' }] },
     ] as any);
 
-    const csv = await buildScheduledTransactionsCsv();
+    const { csv } = await buildScheduledTransactionsCsv();
     const lines = csv.trim().split('\n');
 
     expect(lines[1]).toContain('2026-05-15,Charlie');
@@ -126,7 +126,7 @@ describe('buildScheduledTransactionsCsv', () => {
       { name: 'Bills', categories: [{ id: 'c1', name: 'Internet' }] },
     ] as any);
 
-    const csv = await buildScheduledTransactionsCsv();
+    const { csv } = await buildScheduledTransactionsCsv();
 
     expect(csv).toContain('50.00');
     expect(csv).not.toContain('-50.00');
@@ -137,7 +137,7 @@ describe('buildScheduledTransactionsCsv', () => {
     vi.mocked(actualApi.getPayees).mockResolvedValue([] as any);
     vi.mocked(actualApi.getCategoryGroups).mockResolvedValue([] as any);
 
-    const csv = await buildScheduledTransactionsCsv();
+    const { csv } = await buildScheduledTransactionsCsv();
 
     expect(csv).toBe('Next Date,Payee,Category,Amount\n');
   });
@@ -151,8 +151,26 @@ describe('buildScheduledTransactionsCsv', () => {
       { name: 'Bills', categories: [{ id: 'c1', name: 'Internet' }] },
     ] as any);
 
-    const csv = await buildScheduledTransactionsCsv();
+    const { csv } = await buildScheduledTransactionsCsv();
 
     expect(csv).toContain('"Smith, John"');
+  });
+
+  it('returns rowCount equal to the number of schedules', async () => {
+    vi.mocked(getScheduledTransactions).mockResolvedValue([
+      { id: 's1', payee: 'p1', amount: -1000, nextDate: '2026-06-01', category: 'c1' },
+      { id: 's2', payee: 'p2', amount: -1000, nextDate: '2026-07-01', category: 'c1' },
+    ] as any);
+    vi.mocked(actualApi.getPayees).mockResolvedValue([
+      { id: 'p1', name: 'A' },
+      { id: 'p2', name: 'B' },
+    ] as any);
+    vi.mocked(actualApi.getCategoryGroups).mockResolvedValue([
+      { name: 'Bills', categories: [{ id: 'c1', name: 'Internet' }] },
+    ] as any);
+
+    const { rowCount } = await buildScheduledTransactionsCsv();
+
+    expect(rowCount).toBe(2);
   });
 });

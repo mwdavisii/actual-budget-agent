@@ -17,7 +17,7 @@ import type Database from 'better-sqlite3';
 import type { Client } from 'discord.js';
 import { AttachmentBuilder } from 'discord.js';
 import { logger } from '../logger';
-import { buildScheduledTransactionsCsv } from '../actual/csv';
+import { buildScheduledTransactionsCsv, scheduledTransactionsCsvFilename } from '../actual/csv';
 import { attachCsvToThread } from '../discord/attachments';
 
 export interface ActualConfig {
@@ -342,10 +342,10 @@ export async function executeTool(
       }
       const { discord, threadId } = context;
       return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
-        const csv = await buildScheduledTransactionsCsv();
-        const rowCount = csv.split('\n').length - 2;
-        const dateStr = new Date().toISOString().slice(0, 10);
-        const filename = `scheduled-transactions-${dateStr}.csv`;
+        const { csv, rowCount } = await buildScheduledTransactionsCsv();
+        const filename = scheduledTransactionsCsvFilename();
+        // Always attach (even header-only) so the model can report rowCount: 0 verbatim.
+        // Prefix command short-circuits with a text message instead — see commands.ts.
         await attachCsvToThread(discord, threadId, filename, csv);
         return { success: true, filename, rowCount };
       });

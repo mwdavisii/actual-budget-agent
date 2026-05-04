@@ -131,26 +131,24 @@ const commands: Record<string, Command> = {
     usage: '!scheduled-csv',
     handler: async (ctx) => {
       const { withActual } = await import('../actual/client');
-      const { buildScheduledTransactionsCsv } = await import('../actual/csv');
+      const { buildScheduledTransactionsCsv, scheduledTransactionsCsvFilename } = await import('../actual/csv');
       const { attachCsvToThread } = await import('./attachments');
       const wCtx = ctx.webhookCtx;
-      const csv = await withActual(
+      const { csv, rowCount } = await withActual(
         wCtx.dataDir,
         wCtx.budgetId,
         wCtx.actualServerUrl,
         wCtx.actualPassword,
         buildScheduledTransactionsCsv,
       );
-      const rowCount = csv.split('\n').length - 2;
       if (rowCount <= 0) {
         await postToThread(ctx.client, ctx.threadId, 'No scheduled transactions found.');
         return;
       }
-      const dateStr = new Date().toISOString().slice(0, 10);
       await attachCsvToThread(
         ctx.client,
         ctx.threadId,
-        `scheduled-transactions-${dateStr}.csv`,
+        scheduledTransactionsCsvFilename(),
         csv,
       );
     },
