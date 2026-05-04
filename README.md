@@ -94,6 +94,7 @@ Prefix commands let you interact with the agent directly from Discord without re
 | `!allocate` | Run pay period allocation |
 | `!cleanup [months]` | Start interactive budget cleanup (preview + buttons) |
 | `!uncategorized` | List uncategorized transactions (no LLM categorization) |
+| `!scheduled-csv` | Export upcoming scheduled transactions as a CSV attachment |
 
 When `ENABLE_LLM=false`, freeform messages will prompt you to use `!help`. When the LLM is enabled, freeform messages are still handled by the AI agent as before — prefix commands simply provide a faster, deterministic alternative.
 
@@ -157,6 +158,7 @@ In addition to scheduled webhooks, the agent exposes conversational tools for Di
 | `allocatePayPeriodBudget` | Allocate budget from targets for the current pay period |
 | `exportBudgetTargets` | Export all targets as JSON for backup or sharing |
 | `importBudgetTargets` | Import targets from a JSON payload (upserts) |
+| `exportScheduledTransactionsCsv` | Export upcoming scheduled transactions as a CSV file attached to the current Discord thread |
 
 ## Prerequisites
 

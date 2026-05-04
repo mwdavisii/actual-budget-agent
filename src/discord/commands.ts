@@ -125,6 +125,34 @@ const commands: Record<string, Command> = {
       await postToThread(ctx.client, ctx.threadId, lines.join('\n'));
     },
   },
+
+  'scheduled-csv': {
+    description: 'Export upcoming scheduled transactions as CSV',
+    usage: '!scheduled-csv',
+    handler: async (ctx) => {
+      const { withActual } = await import('../actual/client');
+      const { buildScheduledTransactionsCsv, scheduledTransactionsCsvFilename } = await import('../actual/csv');
+      const { attachCsvToThread } = await import('./attachments');
+      const wCtx = ctx.webhookCtx;
+      const { csv, rowCount } = await withActual(
+        wCtx.dataDir,
+        wCtx.budgetId,
+        wCtx.actualServerUrl,
+        wCtx.actualPassword,
+        buildScheduledTransactionsCsv,
+      );
+      if (rowCount <= 0) {
+        await postToThread(ctx.client, ctx.threadId, 'No scheduled transactions found.');
+        return;
+      }
+      await attachCsvToThread(
+        ctx.client,
+        ctx.threadId,
+        scheduledTransactionsCsvFilename(),
+        csv,
+      );
+    },
+  },
 };
 
 export function parseCommand(content: string): { name: string; args: string[] } | null {
