@@ -225,7 +225,12 @@ export async function executeTool(
 
     case 'getCategories':
       return withActual(actualConfig.dataDir, actualConfig.budgetId, actualConfig.serverUrl, actualConfig.password, async () => {
-        const groups = await actualApi.getCategoryGroups();
+        type CategoryGroupLite = {
+          hidden?: boolean;
+          name: string;
+          categories?: Array<{ hidden?: boolean; name: string }>;
+        };
+        const groups = (await actualApi.getCategoryGroups()) as CategoryGroupLite[];
         return groups
           .filter(g => !g.hidden)
           .map(g => ({
