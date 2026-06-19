@@ -59,9 +59,11 @@ describe('budget MCP tools', () => {
   });
 
   it('query_transactions forwards filters and returns results', async () => {
+    const { getTransactions } = await import('../../../src/actual/queries');
     const client = await connectClient();
     const res = await client.callTool({ name: 'query_transactions', arguments: { startDate: '2026-01-01' } });
     expect(textOf(res as never)).toContain('t2');
+    expect(getTransactions).toHaveBeenCalledWith(expect.objectContaining({ startDate: '2026-01-01' }));
   });
 
   it('get_budget_status returns categories', async () => {
