@@ -1,6 +1,8 @@
 # Hermes Agent configuration for the Budget Agent.
-# Copy into your Hermes Agent config location and edit the marked values.
-# Docs: https://hermes-agent.nousresearch.com/docs/
+# Copy into the `pennyworth` profile's config home (each profile is its own
+# Hermes home dir) and edit the marked values. Run/manage with `-p pennyworth`,
+# e.g. `hermes -p pennyworth gateway start`.
+# Docs: https://hermes-agent.nousresearch.com/docs/user-guide/profiles
 
 provider:
   type: ollama
