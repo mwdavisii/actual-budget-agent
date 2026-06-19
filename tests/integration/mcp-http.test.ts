@@ -32,6 +32,7 @@ describe('MCP HTTP endpoint', () => {
       .set('Accept', 'application/json, text/event-stream')
       .send(INIT);
     expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
     expect(res.text + JSON.stringify(res.body)).toContain('budget-gateway');
   });
 });
