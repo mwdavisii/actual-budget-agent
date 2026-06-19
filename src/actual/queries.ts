@@ -41,6 +41,26 @@ export interface ScheduledTransaction {
   category: string | null;
 }
 
+export interface CategoryGroupView {
+  group: string;
+  categories: string[];
+}
+
+export async function getCategories(): Promise<CategoryGroupView[]> {
+  type CategoryGroupLite = {
+    hidden?: boolean;
+    name: string;
+    categories?: Array<{ hidden?: boolean; name: string }>;
+  };
+  const groups = (await actualApi.getCategoryGroups()) as CategoryGroupLite[];
+  return groups
+    .filter((g) => !g.hidden)
+    .map((g) => ({
+      group: g.name,
+      categories: (g.categories ?? []).filter((c) => !c.hidden).map((c) => c.name),
+    }));
+}
+
 export async function getUncategorizedTransactions(): Promise<Transaction[]> {
   const accounts = await actualApi.getAccounts() as Array<{ id: string; closed: boolean; offbudget: boolean }>;
   const onBudgetIds = accounts.filter((a) => !a.closed && !a.offbudget).map((a) => a.id);
