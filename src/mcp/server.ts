@@ -1,8 +1,28 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { Request, Response } from 'express';
 import { registerBudgetTools, type McpDeps } from './tools';
+
+export { type McpDeps };
 
 export function createBudgetMcpServer(deps: McpDeps): McpServer {
   const server = new McpServer({ name: 'budget-gateway', version: '1.0.0' });
   registerBudgetTools(server, deps);
   return server;
+}
+
+export function createMcpRequestHandler(deps: McpDeps) {
+  return async (req: Request, res: Response): Promise<void> => {
+    const server = createBudgetMcpServer(deps);
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,   // stateless: one server+transport per request
+      enableJsonResponse: true,        // return application/json instead of SSE
+    });
+    res.on('close', () => {
+      void transport.close();
+      void server.close();
+    });
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+  };
 }

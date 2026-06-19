@@ -6,6 +6,7 @@ import { createTransactionsRouter } from './routes/transactions';
 import { createBudgetRouter } from './routes/budget';
 import { createAccountsRouter } from './routes/accounts';
 import { createTargetsRouter } from './routes/targets';
+import { createMcpRequestHandler } from '../mcp/server';
 
 export interface AppDeps {
   db: Database.Database;
@@ -29,6 +30,8 @@ export function createApp(deps: AppDeps) {
   app.use(createBudgetRouter(deps));        // defines /budget/status, /schedules, /categories (later)
   app.use('/accounts', createAccountsRouter(deps));
   app.use('/targets', createTargetsRouter(deps));
+
+  app.post('/mcp', createMcpRequestHandler(deps));
 
   app.use(errorHandler);
 
