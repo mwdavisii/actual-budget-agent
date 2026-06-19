@@ -44,6 +44,6 @@ With the gateway running (`T=secret`):
 
 ## Hermes end-to-end
 
-- [ ] `hermes mcp` probe against the gateway lists the 8 budget tools.
+- [ ] `hermes -p pennyworth mcp` probe against the gateway lists the 8 budget tools.
 - [ ] Telegram: "categorize my latest transactions" → categories applied (verify in Actual web UI) + a summary in chat.
 - [ ] Telegram correction ("that one is Household, not Groceries") → re-applied in Actual; ask again later and the same payee is categorized the corrected way (memory recall).
