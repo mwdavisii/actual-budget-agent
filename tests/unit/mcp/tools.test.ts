@@ -49,6 +49,38 @@ describe('budget MCP tools', () => {
     const res = await client.callTool({ name: 'list_uncategorized_transactions', arguments: {} });
     expect(textOf(res as never)).toContain('t1');
   });
+
+  it('lists all read tools', async () => {
+    const client = await connectClient();
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    for (const n of ['query_transactions', 'get_budget_status', 'list_categories', 'get_schedules']) {
+      expect(names).toContain(n);
+    }
+  });
+
+  it('query_transactions forwards filters and returns results', async () => {
+    const client = await connectClient();
+    const res = await client.callTool({ name: 'query_transactions', arguments: { startDate: '2026-01-01' } });
+    expect(textOf(res as never)).toContain('t2');
+  });
+
+  it('get_budget_status returns categories', async () => {
+    const client = await connectClient();
+    const res = await client.callTool({ name: 'get_budget_status', arguments: {} });
+    expect(textOf(res as never)).toContain('Groceries');
+  });
+
+  it('list_categories returns groups', async () => {
+    const client = await connectClient();
+    const res = await client.callTool({ name: 'list_categories', arguments: {} });
+    expect(textOf(res as never)).toContain('Food');
+  });
+
+  it('get_schedules returns schedules', async () => {
+    const client = await connectClient();
+    const res = await client.callTool({ name: 'get_schedules', arguments: {} });
+    expect(textOf(res as never)).toContain('s1');
+  });
 });
 
 export { connectClient, textOf };
