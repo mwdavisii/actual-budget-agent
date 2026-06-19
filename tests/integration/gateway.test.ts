@@ -92,3 +92,32 @@ describe('transactions routes', () => {
     expect(res.body.error).toMatch(/not found/i);
   });
 });
+
+describe('budget/schedules/categories routes', () => {
+  it('GET /budget/status returns categories', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).get('/budget/status').set(AUTH);
+    expect(res.status).toBe(200);
+    expect(res.body[0].name).toBe('Groceries');
+  });
+
+  it('GET /budget/status with malformed month → 400', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).get('/budget/status?month=2026-1').set(AUTH);
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /schedules returns schedules', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).get('/schedules').set(AUTH);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([{ id: 's1' }]);
+  });
+
+  it('GET /categories returns groups', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).get('/categories').set(AUTH);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([{ group: 'Food', categories: ['Groceries'] }]);
+  });
+});
