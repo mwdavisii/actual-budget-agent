@@ -129,7 +129,14 @@ export function registerBudgetTools(server: McpServer, deps: McpDeps): void {
       try {
         await withActualWrite(() => setCategoryForTransaction(args.txId, args.category));
       } catch (e) {
-        return errorContent(String(e));
+        // Same not-found definition as the REST apply-category route. Give the
+        // agent an actionable hint for the correctable case; mark the rest as a
+        // write failure it should not blindly retry with the same inputs.
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/category .* not found/i.test(msg)) {
+          return errorContent(`${msg} — call list_categories to see valid category names.`);
+        }
+        return errorContent(`Actual Budget write failed: ${msg}`);
       }
       return jsonContent({ success: true, txId: args.txId, category: args.category });
     }

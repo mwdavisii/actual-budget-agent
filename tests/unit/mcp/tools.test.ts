@@ -98,10 +98,22 @@ describe('budget MCP tools', () => {
   });
 
   it('apply_category applies and reports success', async () => {
+    const { setCategoryForTransaction } = await import('../../../src/actual/queries');
     const client = await connectClient();
     const res = await client.callTool({ name: 'apply_category', arguments: { txId: 't9', category: 'Groceries' } });
     expect(textOf(res as never)).toContain('t9');
     expect((res as { isError?: boolean }).isError).not.toBe(true);
+    expect(setCategoryForTransaction).toHaveBeenCalledWith('t9', 'Groceries');
+  });
+
+  it('apply_category surfaces a connectivity failure as a write-failed tool error', async () => {
+    const { setCategoryForTransaction } = await import('../../../src/actual/queries');
+    (setCategoryForTransaction as unknown as { mockRejectedValueOnce: (e: Error) => void })
+      .mockRejectedValueOnce(new Error('actual unreachable'));
+    const client = await connectClient();
+    const res = await client.callTool({ name: 'apply_category', arguments: { txId: 't9', category: 'Groceries' } });
+    expect((res as { isError?: boolean }).isError).toBe(true);
+    expect(textOf(res as never)).toMatch(/write failed/i);
   });
 
   it('apply_category with unknown category returns a tool error', async () => {
