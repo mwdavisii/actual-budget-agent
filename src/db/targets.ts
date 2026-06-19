@@ -107,6 +107,32 @@ export function getUnderfundedCategories(
   return result.sort((a, b) => b.gap - a.gap);
 }
 
+export interface TargetWithLive {
+  categoryName: string;
+  target: number;
+  budgeted: number;
+  gap: number;
+}
+
+export function getTargetsWithLive(
+  db: Database.Database,
+  liveCategories: Array<{ id: string; name: string; budgeted: number }>
+): TargetWithLive[] {
+  const targets = getTargets(db);
+  return targets.map((t) => {
+    const live = liveCategories.find((c) => c.id === t.categoryId);
+    if (!live) {
+      logger.warn('Orphaned budget target — no matching category in Actual', { categoryId: t.categoryId });
+    }
+    return {
+      categoryName: live?.name ?? t.categoryName,
+      target: t.targetAmount,
+      budgeted: live?.budgeted ?? 0,
+      gap: t.targetAmount - (live?.budgeted ?? 0),
+    };
+  });
+}
+
 export interface TargetExport {
   exportedAt: string;
   targets: Array<{

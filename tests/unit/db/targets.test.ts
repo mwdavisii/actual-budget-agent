@@ -5,6 +5,7 @@ import {
   getTargets,
   setTarget,
   getUnderfundedCategories,
+  getTargetsWithLive,
 } from '../../../src/db/targets';
 
 function makeDb() {
@@ -104,5 +105,39 @@ describe('getUnderfundedCategories', () => {
       { id: 'cat1', name: 'Groceries', budgeted: 0, spent: 0, available: 0, isIncome: false },
     ];
     expect(getUnderfundedCategories(db, liveCategories)).toHaveLength(0);
+  });
+});
+
+describe('getTargetsWithLive', () => {
+  it('merges stored targets with live budgeted amounts and computes gap', () => {
+    const db = makeDb();
+    seedTargets(db, mockCategories); // cat1 target 50000, cat2 target 20000
+    const live = [
+      { id: 'cat1', name: 'Groceries', budgeted: 40000 },
+      { id: 'cat2', name: 'Dining Out', budgeted: 25000 },
+    ];
+    const result = getTargetsWithLive(db, live);
+    const g = result.find((r) => r.categoryName === 'Groceries');
+    expect(g).toEqual({ categoryName: 'Groceries', target: 50000, budgeted: 40000, gap: 10000 });
+    const d = result.find((r) => r.categoryName === 'Dining Out');
+    expect(d).toEqual({ categoryName: 'Dining Out', target: 20000, budgeted: 25000, gap: -5000 });
+  });
+
+  it('falls back to stored name and zero budgeted when no live match', () => {
+    const db = makeDb();
+    seedTargets(db, mockCategories);
+    const result = getTargetsWithLive(db, []);
+    const g = result.find((r) => r.categoryName === 'Groceries');
+    expect(g).toEqual({ categoryName: 'Groceries', target: 50000, budgeted: 0, gap: 50000 });
+  });
+
+  it('uses the live category name over the stored name for renames', () => {
+    const db = makeDb();
+    setTarget(db, 'cat1', 'Old Name', 50000);
+    const result = getTargetsWithLive(db, [
+      { id: 'cat1', name: 'New Name', budgeted: 30000 },
+    ]);
+    const r = result.find((x) => x.target === 50000);
+    expect(r).toEqual({ categoryName: 'New Name', target: 50000, budgeted: 30000, gap: 20000 });
   });
 });

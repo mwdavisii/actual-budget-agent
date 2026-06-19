@@ -1,30 +1,6 @@
 import type Database from 'better-sqlite3';
 
 const DDL_STATEMENTS = [
-  `CREATE TABLE IF NOT EXISTS sessions (
-    thread_id   TEXT PRIMARY KEY,
-    messages    TEXT NOT NULL DEFAULT '[]',
-    updated_at  INTEGER NOT NULL DEFAULT (unixepoch())
-  )`,
-  `CREATE TABLE IF NOT EXISTS archived_sessions (
-    thread_id   TEXT PRIMARY KEY,
-    messages    TEXT NOT NULL,
-    archived_at INTEGER NOT NULL DEFAULT (unixepoch())
-  )`,
-  `CREATE TABLE IF NOT EXISTS pending_proposals (
-    id           TEXT PRIMARY KEY,
-    tx_id        TEXT NOT NULL,
-    category     TEXT NOT NULL,
-    reason       TEXT NOT NULL,
-    thread_id    TEXT NOT NULL,
-    message_id   TEXT NOT NULL,
-    status       TEXT NOT NULL DEFAULT 'pending',
-    expires_at   INTEGER NOT NULL,
-    created_at   INTEGER NOT NULL DEFAULT (unixepoch())
-  )`,
-  // Migration: add type and matched_tx_id columns to pending_proposals
-  `ALTER TABLE pending_proposals ADD COLUMN type TEXT NOT NULL DEFAULT 'category'`,
-  `ALTER TABLE pending_proposals ADD COLUMN matched_tx_id TEXT`,
   `CREATE TABLE IF NOT EXISTS budget_targets (
     category_id   TEXT PRIMARY KEY,
     category_name TEXT NOT NULL,
@@ -49,7 +25,10 @@ export function runMigrations(db: Database.Database): void {
     try {
       db.prepare(sql).run();
     } catch (err: unknown) {
-      // ALTER TABLE fails if column already exists — that's expected on restart
+      // Current DDL is CREATE TABLE IF NOT EXISTS only, so this guard is
+      // dormant. It's retained for forward-compatibility: when the deferred
+      // cleanup suite is revived it may add ALTER TABLE migrations, which fail
+      // with "duplicate column" on restart once already applied.
       const msg = err instanceof Error ? err.message : String(err);
       if (sql.startsWith('ALTER TABLE') && msg.includes('duplicate column')) {
         continue;

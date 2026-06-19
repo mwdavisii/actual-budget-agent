@@ -1,196 +1,59 @@
-# Budget Agent
+# Budget Agent — HTTP Gateway
 
-An AI-powered assistant for [Actual Budget](https://actualbudget.org/) that monitors spending, generates alerts, and provides budget insights via Discord and email.
+Budget Agent is an HTTP gateway over [Actual Budget](https://actualbudget.org/). It owns the single persistent connection to Actual and exposes a REST API consumed by n8n automations and an MCP layer (sub-project A of a larger n8n + Hermes migration — spec in docs). Running as the sole Actual connection prevents concurrent-access corruption while allowing multiple upstream callers.
 
-![Budget channel overview](docs/images/sync-confirmation.png)
+> **Migrating from the legacy Discord/LLM agent?** This gateway is headless — it has no Discord bot, LLM agent, email, or scheduled webhooks (those move to n8n/Hermes in later sub-projects). The only new required variable is `GATEWAY_TOKEN`; `ACTUAL_*` carry over. The old `DISCORD_*`, `WEBHOOK_HMAC_KEY`, `LLM_API_KEY`, `SMTP_*`, `EMAIL`, and `ADDITIONAL_EMAILS` variables are now ignored and can be removed.
 
-## How It Works
+## Required Environment Variables
 
-Budget Agent connects to your Actual Budget server and responds to scheduled webhook triggers. Each trigger runs a specific check (overspent categories, uncategorized transactions, etc.), and the agent uses an LLM (Claude, GPT, or Gemini) to analyze the results and post actionable proposals to a Discord channel. Critical alerts are also emailed.
+| Variable | Description |
+|----------|-------------|
+| `ACTUAL_SERVER_URL` | Actual Budget server URL (e.g. `https://actual.example.com`) |
+| `ACTUAL_PASSWORD` | Actual Budget server password |
+| `ACTUAL_BUDGET_ID` | Budget sync ID (Actual Settings > Advanced > Sync ID) |
+| `GATEWAY_TOKEN` | Shared bearer token for API authentication. Generate one yourself, e.g. `openssl rand -hex 32`, and give the same value to every caller. |
 
-### Alert Types
+## Optional Environment Variables
 
-| Trigger | Schedule | Requires | Description |
-|---------|----------|----------|-------------|
-| **Bank Sync** | Daily 6am | — | Syncs all on-budget accounts via SimpleFIN, then runs uncategorized categorization |
-| **Uncategorized** | After bank sync | LLM | Transactions missing a category — agent proposes categories via Discord approval cards |
-| **Overspent** | Daily 8am | — | Categories where spending exceeds the budget |
-| **Unfunded** | Daily 8am | LLM | Scheduled bills with no budget allocated |
-| **Seed Targets** | 1st of month 7am | `ENABLE_SEED_TARGETS` | Captures current budgeted amounts as target baseline |
-| **Pay-Period Allocation** | Daily 6:30am | `ENABLE_PAY_PERIOD_ALLOCATION` | On paydays, allocates budget from targets (fixed bills + discretionary split) |
-| **Stale Pending** | After bank sync | `ENABLE_STALE_PENDING` | Detects transactions stuck in pending state longer than a configurable threshold and posts Discord approval cards to flag or delete them |
-| **Monthly Review** | 1st of month | LLM | End-of-month budget summary |
-| **Weekly Digest** | Monday 7am | — | Weekly spending summary (Discord + email if enabled) |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_DIR` | `/data` | Path for SQLite database and Actual sync data |
+| `PORT` | `3000` | HTTP port to listen on |
+| `SYNC_TTL_SECONDS` | `45` | Seconds before the local Actual cache is considered stale and re-downloaded |
 
-### Architecture
+## Routes
 
-```
-CronJobs (HMAC-signed webhooks)
-        |
-        v
-  Express Server --> Webhook Handlers
-        |                   |
-        v                   v
-  Discord Bot        Actual Budget API
-        |                   |
-        v                   v
-  LLM Agent   <---- Budget Data
-        |
-        v
-  Discord Thread + Email Alerts
-```
+All routes except the health probes require `Authorization: Bearer <GATEWAY_TOKEN>`.
 
-- **Webhook server** — Express with HMAC-SHA256 authentication
-- **AI agent** — Configurable LLM (Claude, GPT, or Gemini) with tools for querying budget data and proposing changes
-- **Proposal cards** — Discord messages with Approve/Reject/Skip buttons showing payee, amount, account, and category
-- **Deduplication** — Proposals are cached by transaction ID for a configurable TTL (default 24h), preventing duplicate proposals across webhook runs
-- **Write operations** — The agent now writes budget amounts back to Actual via `setBudgetAmount` (first write operation), enabling pay-period allocation and target adjustments
-- **Discord** — Alerts posted to threads in a designated channel
-- **Email** — Overspend alerts and weekly digests via SMTP relay
-- **Storage** — SQLite for conversation sessions and budget change proposals
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/healthz` | Liveness probe — always 200 |
+| `GET` | `/readyz` | Readiness probe — 200 once the HTTP server is listening (the Actual connection warms lazily on the first data request) |
+| `GET` | `/tx/uncategorized` | List uncategorized transactions |
+| `POST` | `/tx/query` | Query transactions with filters |
+| `POST` | `/tx/:id/category` | Set the category on a transaction |
+| `GET` | `/budget/status` | Current month budget status |
+| `GET` | `/schedules` | Upcoming scheduled transactions |
+| `GET` | `/categories` | All budget category groups and categories |
+| `POST` | `/accounts/sync` | Trigger a bank sync across all linked accounts |
+| `GET` | `/targets` | Retrieve stored monthly targets |
+| `POST` | `/targets/seed` | Snapshot current budgeted amounts as target baseline |
+| `GET` | `/targets/underfunded` | Categories where current budget is below target |
+| `GET` | `/targets/export` | Export all targets as JSON |
+| `POST` | `/targets/import` | Import targets from a JSON payload (upserts) |
 
-### LLM Usage
+## Example request
 
-The agent uses a configurable LLM (Claude, GPT, or Gemini) in specific places — not every webhook handler calls the model. Here's exactly where the LLM is involved:
-
-**LLM-powered (via `runAgentForAlert`):**
-- **Uncategorized transactions** — the LLM analyzes each transaction and proposes a budget category, posted as a Discord approval card
-
-![Category proposal with approval buttons](docs/images/uncategorized.png)
-
-- **Unfunded bills** — the LLM summarizes which scheduled bills lack budget and suggests actions
-- **Monthly review** — the LLM generates an end-of-month spending summary with insights
-
-**Direct posting (no LLM):**
-- **Overspent categories** — posts a formatted summary directly to Discord (the LLM is not called)
-
-![Overspent categories alert](docs/images/overspent.png)
-
-- **Seed targets** — snapshots budgeted amounts to SQLite and posts confirmation + JSON backup
-- **Pay-period allocation** — deterministic math (target amounts × pay schedule), posts results directly
-- **Weekly digest** — templated summary posted to Discord; also emailed if `ENABLE_EMAIL=true`
-
-![Weekly spending summary](docs/images/weekly-summary.png)
-
-- **Bank sync** — calls the Actual Budget sync API, then triggers the uncategorized handler
-
-**Interactive Discord chat:**
-- Any message from the allowed user in the budget channel or a thread triggers the LLM agent with full tool access. If the thread was created by a direct-posting handler (like overspent), the agent fetches the thread's message history for context on first reply.
-
-**Cost implications:** With default schedules, the LLM is called ~1-2 times daily (uncategorized after bank sync, plus unfunded) and once monthly (review). Interactive Discord chat is on-demand. All other handlers run without LLM calls.
-
-**Running without an LLM:** Set `ENABLE_LLM=false` to disable all AI features. The agent will still run bank sync, overspent alerts, weekly digests, pay-period allocation, and target seeding — only interactive chat and LLM-powered analysis are skipped. No `LLM_API_KEY` is required in this mode. Use prefix commands (below) to interact with the agent from Discord without the LLM.
-
-### Prefix Commands
-
-Prefix commands let you interact with the agent directly from Discord without requiring an LLM. They work whether `ENABLE_LLM` is `true` or `false`.
-
-| Command | Description |
-|---------|-------------|
-| `!help` | List available commands |
-| `!sync` | Trigger bank sync |
-| `!summary` | Weekly spending digest |
-| `!overspent` | Check overspent categories |
-| `!allocate` | Run pay period allocation |
-| `!cleanup [months]` | Start interactive budget cleanup (preview + buttons) |
-| `!uncategorized` | List uncategorized transactions (no LLM categorization) |
-| `!scheduled-csv` | Export upcoming scheduled transactions as a CSV attachment |
-
-When `ENABLE_LLM=false`, freeform messages will prompt you to use `!help`. When the LLM is enabled, freeform messages are still handled by the AI agent as before — prefix commands simply provide a faster, deterministic alternative.
-
-### Cleanup Flow
-
-Budget cleanup uses an interactive button-driven flow — the same experience whether triggered via `!cleanup` or by asking the LLM to clean up. No extra LLM calls are needed for the confirmation steps.
-
-```
-!cleanup 24  (or ask the LLM: "clean up anything older than 2 years")
-      │
-      ▼
-Preview: transaction/category/account counts
-  [Cancel]  [Export Backup]  [Proceed]
-      │            │              │
-      ▼            ▼              ▼
-   Done     ZIP attached      Execute cleanup
-              to thread        (with progress)
-                │
-                ▼
-          [Cancel] [Proceed]
+```bash
+curl -s -H "Authorization: Bearer $GATEWAY_TOKEN" \
+  http://localhost:3000/budget/status
 ```
 
-The **Export Backup** button attaches a full Actual Budget database ZIP to the thread before you commit to deletion.
+Missing/invalid token → `401`. Bad parameters → `400`. Unknown transaction/category → `404`. Actual unreachable → `502`. All errors are JSON: `{ "error": "..." }`.
 
-![Interactive cleanup flow](docs/images/cleanup.png)
+## Deployment
 
-### Agent Tools
-
-The following tools are available to the AI agent when responding to Discord messages. They can be triggered by chatting with the bot in any budget thread.
-
-**cleanup_budget** — Starts the interactive cleanup flow above. Example: _"Clean up anything older than 2 years"_
-
-**export_budget** — Exports the full Actual Budget database as a ZIP file attached to the Discord thread. Example: _"Export a backup of the budget"_
-
-![Budget backup export](docs/images/backup.png)
-
-## Budget Targets
-
-Budget targets provide a monthly allocation baseline the agent can reason about and act on:
-
-- **Auto-seeded** on the 1st of each month from current budgeted amounts
-- **User adjusts** budgeted amounts in Actual to match available funds throughout the month
-- **"What's underfunded?"** — agent compares targets to current budgets and surfaces gaps
-- **Pay-period allocation** — on paydays, the agent sets budget amounts from targets: fixed bills get their full target when due, discretionary categories are split across two paychecks
-- **3rd paycheck months** — the 3rd paycheck is intentionally left unallocated for manual use (e.g., emergency fund, irregular expenses)
-- **Backup/export** — targets are automatically backed up as a JSON attachment in Discord after each monthly seed. You can also export/import via HTTP endpoints or conversational agent tools.
-
-![Pay-period allocation with targets](docs/images/targets.png)
-
-## Agent Tools
-
-In addition to scheduled webhooks, the agent exposes conversational tools for Discord interactions:
-
-| Tool | Description |
-|------|-------------|
-| `getCategories` | Fetch all available budget category groups and their categories — agent calls this before proposing categories |
-| `getBudgetTargets` | Retrieve stored monthly targets for all categories |
-| `setBudgetTarget` | Update the target amount for a specific category |
-| `seedBudgetTargets` | Snapshot current budgeted amounts as the new target baseline |
-| `getUnderfundedCategories` | List categories where current budget is below target |
-| `allocatePayPeriodBudget` | Allocate budget from targets for the current pay period |
-| `exportBudgetTargets` | Export all targets as JSON for backup or sharing |
-| `importBudgetTargets` | Import targets from a JSON payload (upserts) |
-| `exportScheduledTransactionsCsv` | Export upcoming scheduled transactions as a CSV file attached to the current Discord thread |
-
-## Prerequisites
-
-### Discord Bot
-
-1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and click **New Application**
-2. Under **Bot**, click **Reset Token** and save the token — this is your `DISCORD_TOKEN`
-3. Enable these **Privileged Gateway Intents**: Message Content, Server Members (optional)
-4. Under **OAuth2 > URL Generator**, select scopes `bot` and permissions: Send Messages, Send Messages in Threads, Create Public Threads, Manage Messages, Read Message History, Use External Emojis
-5. Open the generated URL to invite the bot to your server
-6. In Discord, enable Developer Mode (User Settings > Advanced), then right-click to copy IDs:
-   - Your user ID → `DISCORD_ALLOWED_USER_ID`
-   - Budget alerts channel → `DISCORD_BUDGET_CHANNEL_ID`
-   - Error notifications channel → `DISCORD_ERROR_CHANNEL_ID`
-
-### Actual Budget
-
-You need a running [Actual Budget](https://actualbudget.org/) server (self-hosted). From the app:
-
-1. Go to **Settings > Advanced** and copy the **Sync ID** — this is your `ACTUAL_BUDGET_ID`
-2. Your server URL (e.g. `https://actual.example.com`) → `ACTUAL_SERVER_URL`
-3. Your server password → `ACTUAL_PASSWORD`
-
-For bank sync to work, connect your accounts to [SimpleFIN](https://simplefin.org/) through Actual's linked accounts feature.
-
-### LLM API Key
-
-Get an API key from your chosen provider:
-
-- **Anthropic** (default): [console.anthropic.com](https://console.anthropic.com/) → `LLM_API_KEY`
-- **OpenAI**: [platform.openai.com](https://platform.openai.com/) → set `LLM_PROVIDER=openai`
-- **Google Gemini**: [aistudio.google.com](https://aistudio.google.com/) → set `LLM_PROVIDER=gemini`
+The container is built and published to GHCR on push to `main` (see `.github/workflows/build-container.yml`). It runs `node dist/index.js` and listens on `PORT` (default `3000`). Provide the required environment variables and mount a volume at `DATA_DIR` to persist the SQLite store (targets) and the Actual sync cache. See `SMOKE_TEST.md` for a post-deploy verification checklist.
 
 ## Development
 
@@ -198,150 +61,8 @@ Get an API key from your chosen provider:
 npm install
 npm run build
 npm test
-npm run dev     # requires .env with secrets
+npm run dev   # requires .env with the required vars above
 ```
-
-## Environment Variables
-
-### Required
-
-| Variable | Description |
-|----------|-------------|
-| `LLM_API_KEY` | API key for the chosen LLM provider (not required if `ENABLE_LLM=false`) |
-| `DISCORD_TOKEN` | Discord bot token |
-| `DISCORD_ALLOWED_USER_ID` | Numeric Discord user ID allowed to interact |
-| `DISCORD_BUDGET_CHANNEL_ID` | Channel for budget alerts |
-| `DISCORD_ERROR_CHANNEL_ID` | Channel for error notifications |
-| `ACTUAL_SERVER_URL` | Actual Budget server URL |
-| `ACTUAL_PASSWORD` | Actual Budget password |
-| `ACTUAL_BUDGET_ID` | Budget sync ID (Settings > Advanced > Sync ID) |
-| `WEBHOOK_HMAC_KEY` | Shared secret for webhook authentication |
-
-### Optional
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ENABLE_LLM` | `true` | Set to `false` to disable all LLM features (interactive chat, uncategorized categorization, unfunded analysis, monthly review). `LLM_API_KEY` is not required when disabled. Direct-posting handlers (overspent, weekly digest, bank sync, pay-period allocation) still work. |
-| `ENABLE_PAY_PERIOD_ALLOCATION` | `true` | Set to `false` to disable automatic pay-period budget allocation on paydays |
-| `ENABLE_SEED_TARGETS` | `true` | Set to `false` to disable automatic monthly target seeding |
-| `ENABLE_STALE_PENDING` | `false` | Set to `true` to enable stale pending transaction detection (runs after bank sync) |
-| `LLM_PROVIDER` | `anthropic` | AI provider: `anthropic`, `openai`, or `gemini` |
-| `LLM_MODEL` | per-provider | Model override (defaults: `claude-sonnet-4-6`, `gpt-4o`, `gemini-2.5-flash`) |
-| `ENABLE_EMAIL` | `false` | Set to `true` to enable email alerts (requires SMTP vars below) |
-| `SMTP_HOST` | | SMTP relay host (required if email enabled) |
-| `SMTP_PORT` | | SMTP relay port (required if email enabled) |
-| `EMAIL` | | Sender email address (required if email enabled) |
-| `ADDITIONAL_EMAILS` | | Comma-delimited recipient(s) for alerts/digests (required if email enabled) |
-| `DATA_DIR` | `/data` | Path for SQLite database and Actual sync data |
-| `CONFIGMAP_PATH` | | Path to settings.json for hot-reload config (Kubernetes) |
-
-## Budget Configuration
-
-These env vars control agent behavior. All are optional with sensible defaults.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OVERSPEND_THRESHOLD_DOLLARS` | `50` | Minimum overspend amount (dollars) to trigger email alerts |
-| `EMAIL_CATEGORIES` | `Dining Out,Groceries` | Comma-delimited budget category names that trigger email alerts when overspent |
-| `PROPOSAL_TTL_HOURS` | `24` | Hours before a pending proposal expires and can be re-proposed |
-| `PAY_FREQUENCY_DAYS` | `14` | Days between paychecks (e.g. 14 for biweekly, 7 for weekly) |
-| `LAST_PAY_DATE` | `2025-01-03` | A known past payday (any Friday works). Used as an anchor to compute your pay schedule — the agent counts forward by `PAY_FREQUENCY_DAYS` to determine future paydays. |
-| `STALE_PENDING_AGE_DAYS` | `5` | Days a transaction must stay in pending state before being flagged |
-| `STALE_PENDING_CATEGORIES` | `Dining Out` | Comma-delimited category names to monitor for stale pending transactions |
-
-**Optional file override:** If `CONFIGMAP_PATH` is set to a JSON file path, values in that file take precedence over env vars. This supports hot-reload for Kubernetes ConfigMaps without pod restart.
-
-## Deployment
-
-### Docker
-
-Run with Docker using the pre-built image from GHCR:
-
-```bash
-docker run -d \
-  --name budget-agent \
-  -p 3000:3000 \
-  -v budget-agent-data:/data \
-  -e LLM_API_KEY=sk-ant-... \
-  -e DISCORD_TOKEN=... \
-  -e DISCORD_ALLOWED_USER_ID=... \
-  -e DISCORD_BUDGET_CHANNEL_ID=... \
-  -e DISCORD_ERROR_CHANNEL_ID=... \
-  -e ACTUAL_SERVER_URL=https://actual.example.com \
-  -e ACTUAL_PASSWORD=... \
-  -e ACTUAL_BUDGET_ID=... \
-  -e WEBHOOK_HMAC_KEY=$(openssl rand -hex 32) \
-  ghcr.io/mwdavisii/actual-budget-agent:latest
-```
-
-To enable email alerts, add:
-
-```bash
-  -e ENABLE_EMAIL=true \
-  -e SMTP_HOST=smtp.example.com \
-  -e SMTP_PORT=587 \
-  -e EMAIL=budget@example.com \
-  -e ADDITIONAL_EMAILS=alice@example.com,bob@example.com \
-```
-
-Or use an env file:
-
-```bash
-docker run -d \
-  --name budget-agent \
-  -p 3000:3000 \
-  -v budget-agent-data:/data \
-  --env-file .env \
-  ghcr.io/mwdavisii/actual-budget-agent:latest
-```
-
-#### Triggering Webhooks with Cron
-
-The agent responds to HMAC-signed webhook POSTs. Without Kubernetes CronJobs, use the host crontab or a sidecar container. Example crontab entry for bank sync at 6am daily:
-
-```bash
-# Generate the HMAC signature and POST to the webhook
-0 6 * * * BODY='{"checkType":"bank_sync","triggeredAt":"'$(date -u +\%Y-\%m-\%dT\%H:\%M:\%SZ)'"}' && SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_HMAC_KEY" | sed 's/^.* //')" && curl -sf -X POST -H "Content-Type: application/json" -H "X-Webhook-Signature: $SIG" -d "$BODY" http://localhost:3000/webhook
-```
-
-Available `checkType` values: `bank_sync`, `allocate_pay_period`, `seed_targets`, `overspent_categories`, `unfunded_bills`, `monthly_review`, `weekly_digest`, `stale_pending`.
-
-#### Exporting & Importing Budget Targets
-
-Budget targets are automatically backed up to Discord as a JSON attachment after each monthly seed. You can also export/import via HMAC-authenticated HTTP endpoints:
-
-```bash
-# Export targets
-SIG="sha256=$(printf '' | openssl dgst -sha256 -hmac "$WEBHOOK_HMAC_KEY" | sed 's/^.* //')"
-curl -sf -H "X-Webhook-Signature: $SIG" http://localhost:3000/export/targets > targets-backup.json
-
-# Import targets
-BODY=$(cat targets-backup.json)
-SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_HMAC_KEY" | sed 's/^.* //')"
-curl -sf -X POST -H "Content-Type: application/json" -H "X-Webhook-Signature: $SIG" -d "$BODY" http://localhost:3000/import/targets
-```
-
-### Docker Compose
-
-```yaml
-services:
-  budget-agent:
-    image: ghcr.io/mwdavisii/actual-budget-agent:latest
-    ports:
-      - "3000:3000"
-    volumes:
-      - budget-data:/data
-    env_file:
-      - .env
-    restart: unless-stopped
-
-volumes:
-  budget-data:
-```
-
-### Kubernetes
-
-Deployed via [Flux GitOps](https://fluxcd.io/). Container images are built by GitHub Actions on push to `main` and auto-deployed via Flux image automation. See the [hops](https://github.com/mwdavisii/hops) repo for k8s manifests.
 
 ## License
 

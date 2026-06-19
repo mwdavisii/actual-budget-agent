@@ -7,113 +7,37 @@ process.on('unhandledRejection', (err) => {
   console.error(JSON.stringify({ level: 'error', message: 'Unhandled rejection', err: String(err) }));
 });
 
+import fs from 'fs';
+import { getGatewayConfig } from './config';
 import { getDb } from './db/client';
 import { runMigrations } from './db/schema';
-import { archiveExpiredSessions } from './db/sessions';
-import { getPendingProposals, updateProposalMessageId, expireStaleProposals, setProposalTtl } from './db/proposals';
-import { getSecrets, getDynamicConfig } from './config';
-import { createDiscordClient, loginDiscord } from './discord/client';
-import { createWebhookServer } from './webhook/server';
-import { registerMessageHandler } from './discord/router';
-import { registerInteractionHandler } from './discord/interactions';
-import { initAppContext } from './agent/index';
-import { createEmailClient } from './email/client';
-import { postApprovalMessage, editMessage } from './discord/threads';
-import { createLLMProvider, type LLMProviderName } from './llm/index';
+import { configureActual } from './actual/client';
+import { createApp } from './http/app';
 import { logger } from './logger';
-import type { ThreadChannel } from 'discord.js';
-import type { ActualConfig } from './agent/tools';
 
-async function main() {
-  logger.info('Budget agent starting');
+async function main(): Promise<void> {
+  logger.info('Actual gateway starting');
 
-  const secrets = getSecrets();
-  const db = getDb(secrets.dataDir);
+  const cfg = getGatewayConfig();
+  // Ensure the data dir exists — better-sqlite3 won't create the parent dir,
+  // and DATA_DIR may be an unmounted/empty volume on first run.
+  fs.mkdirSync(cfg.dataDir, { recursive: true });
+  const db = getDb(cfg.dataDir);
   runMigrations(db);
-  archiveExpiredSessions(db, 7);
-  expireStaleProposals(db);
 
-  const { proposalTtlHours } = getDynamicConfig();
-  setProposalTtl(proposalTtlHours * 60 * 60);
-
-  const discord = createDiscordClient();
-  const emailTransporter = secrets.enableEmail
-    ? createEmailClient({ host: secrets.smtpHost, port: secrets.smtpPort })
-    : null!;
-  if (!secrets.enableEmail) logger.info('Email disabled (ENABLE_EMAIL is not set to true)');
-  const llm = secrets.enableLlm
-    ? createLLMProvider(secrets.llmProvider as LLMProviderName, secrets.llmApiKey, secrets.llmModel)
-    : null!;
-  if (secrets.enableLlm) {
-    logger.info('LLM provider initialized', { provider: secrets.llmProvider, model: secrets.llmModel ?? 'default' });
-  } else {
-    logger.info('LLM disabled (ENABLE_LLM is not set to true)');
-  }
-  if (!secrets.enablePayPeriodAllocation) logger.info('Pay-period allocation disabled (ENABLE_PAY_PERIOD_ALLOCATION is not set to true)');
-  if (!secrets.enableSeedTargets) logger.info('Seed targets disabled (ENABLE_SEED_TARGETS is not set to true)');
-  if (!secrets.enableStalePending) logger.info('Stale pending detection disabled (ENABLE_STALE_PENDING is not set to true)');
-
-  const actualConfig: ActualConfig = {
-    dataDir: secrets.dataDir,
-    budgetId: secrets.actualBudgetId,
-    serverUrl: secrets.actualServerUrl,
-    password: secrets.actualPassword,
-  };
-
-  initAppContext({ discord, db, secrets, emailTransporter, actualConfig, llm });
-
-  await loginDiscord(discord, secrets.discordToken);
-  await new Promise<void>((resolve) => discord.once('ready', () => resolve()));
-  logger.info('Discord client ready');
-
-  // SEQUENTIAL: re-post pending proposals BEFORE registering interaction listener
-  const pending = getPendingProposals(db);
-  logger.info('Re-posting pending proposals', { count: pending.length });
-
-  for (const proposal of pending) {
-    try {
-      const thread = await discord.channels.fetch(proposal.threadId) as ThreadChannel | null;
-      if (!thread) { logger.warn('Thread not found', { proposalId: proposal.id }); continue; }
-      if (thread.archived) await thread.setArchived(false);
-
-      await editMessage(discord, proposal.threadId, proposal.messageId, '⟳ Re-posted above');
-
-      const content = `**Category Proposal (re-posted)**\nTransaction: \`${proposal.txId}\`\nCategory: **${proposal.category}**\nReason: ${proposal.reason}`;
-      const newMsg = await postApprovalMessage(thread, content);
-      updateProposalMessageId(db, proposal.id, newMsg.id);
-    } catch (err) {
-      logger.error('Failed to re-post proposal', { proposalId: proposal.id, err: String(err) });
-    }
-  }
-
-  const webhookCtx = {
-    hmacKey: secrets.webhookHmacKey,
-    dataDir: secrets.dataDir,
-    budgetId: actualConfig.budgetId,
-    actualServerUrl: actualConfig.serverUrl,
-    actualPassword: actualConfig.password,
-  };
-
-  // NOW register listeners — no race with re-post loop
-  registerInteractionHandler(discord, db, secrets, actualConfig);
-  registerMessageHandler(discord, secrets, webhookCtx);
-  const { app, setReady } = createWebhookServer(webhookCtx);
-  const PORT = parseInt(process.env['PORT'] ?? '3000', 10);
-  app.listen(PORT, () => {
-    logger.info('Webhook server listening', { port: PORT });
-    setReady();
+  configureActual({
+    dataDir: cfg.dataDir,
+    budgetId: cfg.actualBudgetId,
+    serverUrl: cfg.actualServerUrl,
+    password: cfg.actualPassword,
+    ttlSeconds: cfg.syncTtlSeconds,
   });
 
-  // Hourly maintenance
-  setInterval(() => {
-    const config = getDynamicConfig();
-    setProposalTtl(config.proposalTtlHours * 60 * 60);
-    expireStaleProposals(db);
-    archiveExpiredSessions(db, 7);
-    logger.debug('Ran hourly maintenance');
-  }, 60 * 60 * 1000);
-
-  logger.info('Budget agent startup complete');
+  const { app, setReady } = createApp({ db, token: cfg.gatewayToken });
+  app.listen(cfg.port, () => {
+    logger.info('Gateway listening', { port: cfg.port });
+    setReady();
+  });
 }
 
 main().catch((err) => {
