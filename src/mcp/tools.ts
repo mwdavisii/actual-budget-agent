@@ -9,6 +9,7 @@ import {
   getCategories,
   getScheduledTransactions,
 } from '../actual/queries';
+import { getTargetsWithLive, getUnderfundedCategories } from '../db/targets';
 
 export interface McpDeps {
   db: Database.Database;
@@ -18,7 +19,7 @@ function jsonContent(value: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value) }] };
 }
 
-export function registerBudgetTools(server: McpServer, _deps: McpDeps): void {
+export function registerBudgetTools(server: McpServer, deps: McpDeps): void {
   server.registerTool(
     'list_uncategorized_transactions',
     {
@@ -83,6 +84,30 @@ export function registerBudgetTools(server: McpServer, _deps: McpDeps): void {
     async () => {
       const schedules = await withActualRead(getScheduledTransactions);
       return jsonContent(schedules);
+    }
+  );
+
+  server.registerTool(
+    'get_targets',
+    {
+      description: 'List stored budget targets merged with current budgeted amounts and the gap (target - budgeted). Amounts in cents.',
+      inputSchema: {},
+    },
+    async () => {
+      const live = await withActualRead(() => getBudgetStatus());
+      return jsonContent(getTargetsWithLive(deps.db, live));
+    }
+  );
+
+  server.registerTool(
+    'get_underfunded',
+    {
+      description: 'List categories whose current budgeted amount is below their stored target, with the gap. Amounts in cents.',
+      inputSchema: {},
+    },
+    async () => {
+      const live = await withActualRead(() => getBudgetStatus());
+      return jsonContent(getUnderfundedCategories(deps.db, live));
     }
   );
 }

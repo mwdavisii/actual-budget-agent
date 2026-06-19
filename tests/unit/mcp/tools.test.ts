@@ -83,6 +83,19 @@ describe('budget MCP tools', () => {
     const res = await client.callTool({ name: 'get_schedules', arguments: {} });
     expect(textOf(res as never)).toContain('s1');
   });
+
+  it('get_targets returns merged targets', async () => {
+    const client = await connectClient();
+    const res = await client.callTool({ name: 'get_targets', arguments: {} });
+    expect(textOf(res as never)).toContain('Groceries');
+    expect(textOf(res as never)).toContain('gap');
+  });
+
+  it('get_underfunded returns gaps', async () => {
+    const client = await connectClient();
+    const res = await client.callTool({ name: 'get_underfunded', arguments: {} });
+    expect(textOf(res as never)).toContain('Groceries');
+  });
 });
 
 export { connectClient, textOf };
