@@ -7,6 +7,7 @@ process.on('unhandledRejection', (err) => {
   console.error(JSON.stringify({ level: 'error', message: 'Unhandled rejection', err: String(err) }));
 });
 
+import fs from 'fs';
 import { getGatewayConfig } from './config';
 import { getDb } from './db/client';
 import { runMigrations } from './db/schema';
@@ -18,6 +19,9 @@ async function main(): Promise<void> {
   logger.info('Actual gateway starting');
 
   const cfg = getGatewayConfig();
+  // Ensure the data dir exists — better-sqlite3 won't create the parent dir,
+  // and DATA_DIR may be an unmounted/empty volume on first run.
+  fs.mkdirSync(cfg.dataDir, { recursive: true });
   const db = getDb(cfg.dataDir);
   runMigrations(db);
 
