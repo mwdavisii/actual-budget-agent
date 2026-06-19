@@ -34,3 +34,16 @@ In another shell (export `T=secret` to match `GATEWAY_TOKEN`):
 - [ ] Malformed month → `400`: `curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $T" "localhost:3000/budget/status?month=2026-1"`
 - [ ] Unknown category on apply → `404` with `{"error":"...not found"}`.
 - [ ] Stop the Actual server, then hit any data route → `502 {"error":"actual unreachable: ..."}`.
+
+## MCP endpoint (for Hermes)
+
+With the gateway running (`T=secret`):
+
+- [ ] `curl -s -o /dev/null -w "%{http_code}\n" -X POST localhost:3000/mcp -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"c","version":"1"}}}'` → `401` (no token)
+- [ ] Same call with `-H "Authorization: Bearer $T" -H 'Accept: application/json, text/event-stream'` → `200`, body mentions `budget-gateway`.
+
+## Hermes end-to-end
+
+- [ ] `hermes mcp` probe against the gateway lists the 8 budget tools.
+- [ ] Telegram: "categorize my latest transactions" → categories applied (verify in Actual web UI) + a summary in chat.
+- [ ] Telegram correction ("that one is Household, not Groceries") → re-applied in Actual; ask again later and the same payee is categorized the corrected way (memory recall).
