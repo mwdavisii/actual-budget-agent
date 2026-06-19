@@ -137,3 +137,43 @@ describe('accounts route', () => {
     expect(res.body).toEqual({ synced: ['Checking'], failed: [] });
   });
 });
+
+describe('targets routes', () => {
+  it('POST /targets/seed seeds from live budget then GET /targets returns them', async () => {
+    const { app } = createApp(makeDeps());
+    const seed = await request(app).post('/targets/seed').set(AUTH).send({});
+    expect(seed.status).toBe(200);
+    expect(seed.body.count).toBe(1); // Groceries budgeted 100, not income
+
+    const list = await request(app).get('/targets').set(AUTH);
+    expect(list.status).toBe(200);
+    expect(list.body[0].categoryName).toBe('Groceries');
+    expect(list.body[0].target).toBe(100);
+  });
+
+  it('GET /targets/underfunded returns gaps', async () => {
+    const { app } = createApp(makeDeps());
+    await request(app).post('/targets/seed').set(AUTH).send({}); // target 100 == budgeted 100 → no gap
+    const res = await request(app).get('/targets/underfunded').set(AUTH);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]); // budgeted == target, gap not > 0
+  });
+
+  it('GET /targets/export then POST /targets/import round-trips', async () => {
+    const { app } = createApp(makeDeps());
+    await request(app).post('/targets/seed').set(AUTH).send({});
+    const exported = await request(app).get('/targets/export').set(AUTH);
+    expect(exported.body.targets.length).toBe(1);
+
+    const fresh = createApp(makeDeps());
+    const imported = await request(fresh.app).post('/targets/import').set(AUTH).send(exported.body);
+    expect(imported.status).toBe(200);
+    expect(imported.body.imported).toBe(1);
+  });
+
+  it('POST /targets/import with no targets array → 400', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).post('/targets/import').set(AUTH).send({ nope: true });
+    expect(res.status).toBe(400);
+  });
+});
