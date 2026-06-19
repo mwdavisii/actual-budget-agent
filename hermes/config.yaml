@@ -21,7 +21,7 @@ mcp:
       # auth: send the gateway bearer token. Confirm your Hermes version's
       # header syntax for static-token HTTP MCP servers (see README step 2).
       headers:
-        Authorization: "Bearer REPLACE_WITH_GATEWAY_TOKEN"   # EDIT
+        Authorization: "Bearer changeme"   # EDIT: replace with your GATEWAY_TOKEN
 
 platforms:
   telegram:

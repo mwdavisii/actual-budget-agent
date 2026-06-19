@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Request, Response } from 'express';
 import { registerBudgetTools, type McpDeps } from './tools';
+import { logger } from '../logger';
 
 export { type McpDeps };
 
@@ -19,8 +20,8 @@ export function createMcpRequestHandler(deps: McpDeps) {
       enableJsonResponse: true,        // return application/json instead of SSE
     });
     res.on('close', () => {
-      void transport.close();
-      void server.close();
+      transport.close().catch((e) => logger.warn('MCP transport close error', { error: String(e) }));
+      server.close().catch((e) => logger.warn('MCP server close error', { error: String(e) }));
     });
     await server.connect(transport);
     await transport.handleRequest(req, res, req.body);

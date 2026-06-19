@@ -126,5 +126,3 @@ describe('budget MCP tools', () => {
     expect(textOf(res as never)).toMatch(/not found/i);
   });
 });
-
-export { connectClient, textOf };
