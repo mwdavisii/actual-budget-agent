@@ -64,4 +64,78 @@ export async function withActual<T>(
   });
 }
 
+// ── Gateway connection: warm cache + TTL refresh ────────────────────────────
+
+interface GatewayActualConfig {
+  dataDir: string;
+  budgetId: string;
+  serverUrl: string;
+  password: string;
+  ttlMs: number;
+}
+
+let gatewayConfig: GatewayActualConfig | null = null;
+let lastDownloadMs = 0;
+
+export function configureActual(cfg: {
+  dataDir: string;
+  budgetId: string;
+  serverUrl: string;
+  password: string;
+  ttlSeconds: number;
+}): void {
+  gatewayConfig = {
+    dataDir: cfg.dataDir,
+    budgetId: cfg.budgetId,
+    serverUrl: cfg.serverUrl,
+    password: cfg.password,
+    ttlMs: cfg.ttlSeconds * 1000,
+  };
+  initialized = false;
+  lastDownloadMs = 0;
+}
+
+async function downloadWithRetry(cfg: GatewayActualConfig): Promise<void> {
+  const syncDir = path.join(cfg.dataDir, 'actual-sync');
+  fs.mkdirSync(syncDir, { recursive: true });
+  if (!initialized) {
+    await initActual(syncDir, cfg.serverUrl, cfg.password);
+  }
+  try {
+    await actualApi.downloadBudget(cfg.budgetId, { password: cfg.password });
+  } catch (e) {
+    logger.warn('Budget sync failed, retrying after re-init', { error: String(e) });
+    await initActual(syncDir, cfg.serverUrl, cfg.password);
+    await actualApi.downloadBudget(cfg.budgetId, { password: cfg.password });
+  }
+  lastDownloadMs = Date.now();
+}
+
+async function ensureFresh(force: boolean): Promise<void> {
+  if (!gatewayConfig) {
+    throw new Error('Actual connection not configured — call configureActual() first');
+  }
+  const stale = Date.now() - lastDownloadMs > gatewayConfig.ttlMs;
+  if (force || !initialized || stale) {
+    await downloadWithRetry(gatewayConfig);
+  }
+}
+
+export async function withActualRead<T>(fn: () => Promise<T>): Promise<T> {
+  return withLock(async () => {
+    await ensureFresh(false);
+    return fn();
+  });
+}
+
+export async function withActualWrite<T>(fn: () => Promise<T>): Promise<T> {
+  return withLock(async () => {
+    await ensureFresh(true);
+    const result = await fn();
+    await actualApi.sync();
+    lastDownloadMs = Date.now();
+    return result;
+  });
+}
+
 export { actualApi };
