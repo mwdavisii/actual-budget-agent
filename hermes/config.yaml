@@ -1,0 +1,33 @@
+# Hermes Agent configuration for the Budget Agent.
+# Copy into your Hermes Agent config location and edit the marked values.
+# Docs: https://hermes-agent.nousresearch.com/docs/
+
+provider:
+  type: ollama
+  base_url: http://localhost:11434   # EDIT: your Ollama endpoint
+  model: hermes3:8b                  # EDIT: a tool-calling model with >=64k context
+
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+
+# The gateway's MCP endpoint. Prefer configuring via `hermes mcp` (see README),
+# which writes an equivalent entry. Shown here for reference.
+mcp:
+  servers:
+    budget-gateway:
+      transport: http
+      url: http://gateway:3000/mcp    # EDIT: your gateway host:port
+      # auth: send the gateway bearer token. Confirm your Hermes version's
+      # header syntax for static-token HTTP MCP servers (see README step 2).
+      headers:
+        Authorization: "Bearer REPLACE_WITH_GATEWAY_TOKEN"   # EDIT
+
+platforms:
+  telegram:
+    enabled: true
+    # Pair only your own Telegram user; unknown DMs are ignored.
+    unauthorized_dm_behavior: ignore
+
+agent:
+  system_prompt_file: ./system-prompt.md
