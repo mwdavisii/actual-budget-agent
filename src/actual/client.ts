@@ -77,6 +77,11 @@ interface GatewayActualConfig {
 let gatewayConfig: GatewayActualConfig | null = null;
 let lastDownloadMs = 0;
 
+/**
+ * Configure the warm-cache gateway connection. Call once at startup before the
+ * HTTP server accepts connections. Not safe to call concurrently with
+ * withActualRead/withActualWrite — it mutates module state outside the lock.
+ */
 export function configureActual(cfg: {
   dataDir: string;
   budgetId: string;
@@ -108,13 +113,19 @@ async function downloadWithRetry(cfg: GatewayActualConfig): Promise<void> {
     await initActual(syncDir, cfg.serverUrl, cfg.password);
     await actualApi.downloadBudget(cfg.budgetId, { password: cfg.password });
   }
+  // Authoritative freshness marker: reflects when the local cache was last
+  // populated. This is the only place lastDownloadMs should be set.
   lastDownloadMs = Date.now();
+  logger.info('Actual Budget synced');
 }
 
 async function ensureFresh(force: boolean): Promise<void> {
   if (!gatewayConfig) {
     throw new Error('Actual connection not configured — call configureActual() first');
   }
+  // Strict ">" means a cache exactly ttlMs old is still served as fresh; the
+  // re-download fires only once it is strictly older. Intentional — do not
+  // change to ">=" expecting a bug fix.
   const stale = Date.now() - lastDownloadMs > gatewayConfig.ttlMs;
   if (force || !initialized || stale) {
     await downloadWithRetry(gatewayConfig);
@@ -133,7 +144,6 @@ export async function withActualWrite<T>(fn: () => Promise<T>): Promise<T> {
     await ensureFresh(true);
     const result = await fn();
     await actualApi.sync();
-    lastDownloadMs = Date.now();
     return result;
   });
 }
