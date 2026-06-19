@@ -1,13 +1,14 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
-import { withActualRead } from '../actual/client';
+import { withActualRead, withActualWrite } from '../actual/client';
 import {
   getUncategorizedTransactions,
   getTransactions,
   getBudgetStatus,
   getCategories,
   getScheduledTransactions,
+  setCategoryForTransaction,
 } from '../actual/queries';
 import { getTargetsWithLive, getUnderfundedCategories } from '../db/targets';
 
@@ -17,6 +18,10 @@ export interface McpDeps {
 
 function jsonContent(value: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value) }] };
+}
+
+function errorContent(message: string) {
+  return { content: [{ type: 'text' as const, text: message }], isError: true };
 }
 
 export function registerBudgetTools(server: McpServer, deps: McpDeps): void {
@@ -108,6 +113,25 @@ export function registerBudgetTools(server: McpServer, deps: McpDeps): void {
     async () => {
       const live = await withActualRead(() => getBudgetStatus());
       return jsonContent(getUnderfundedCategories(deps.db, live));
+    }
+  );
+
+  server.registerTool(
+    'apply_category',
+    {
+      description: 'Assign a category to a transaction by id. Use a category name from list_categories. Writes to Actual Budget.',
+      inputSchema: {
+        txId: z.string(),
+        category: z.string(),
+      },
+    },
+    async (args) => {
+      try {
+        await withActualWrite(() => setCategoryForTransaction(args.txId, args.category));
+      } catch (e) {
+        return errorContent(String(e));
+      }
+      return jsonContent({ success: true, txId: args.txId, category: args.category });
     }
   );
 }

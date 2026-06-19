@@ -96,6 +96,23 @@ describe('budget MCP tools', () => {
     const res = await client.callTool({ name: 'get_underfunded', arguments: {} });
     expect(textOf(res as never)).toContain('Groceries');
   });
+
+  it('apply_category applies and reports success', async () => {
+    const client = await connectClient();
+    const res = await client.callTool({ name: 'apply_category', arguments: { txId: 't9', category: 'Groceries' } });
+    expect(textOf(res as never)).toContain('t9');
+    expect((res as { isError?: boolean }).isError).not.toBe(true);
+  });
+
+  it('apply_category with unknown category returns a tool error', async () => {
+    const { setCategoryForTransaction } = await import('../../../src/actual/queries');
+    (setCategoryForTransaction as unknown as { mockRejectedValueOnce: (e: Error) => void })
+      .mockRejectedValueOnce(new Error('Category "Nope" not found'));
+    const client = await connectClient();
+    const res = await client.callTool({ name: 'apply_category', arguments: { txId: 't9', category: 'Nope' } });
+    expect((res as { isError?: boolean }).isError).toBe(true);
+    expect(textOf(res as never)).toMatch(/not found/i);
+  });
 });
 
 export { connectClient, textOf };
