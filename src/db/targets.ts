@@ -121,6 +121,9 @@ export function getTargetsWithLive(
   const targets = getTargets(db);
   return targets.map((t) => {
     const live = liveCategories.find((c) => c.id === t.categoryId);
+    if (!live) {
+      logger.warn('Orphaned budget target — no matching category in Actual', { categoryId: t.categoryId });
+    }
     return {
       categoryName: live?.name ?? t.categoryName,
       target: t.targetAmount,

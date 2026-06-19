@@ -130,4 +130,14 @@ describe('getTargetsWithLive', () => {
     const g = result.find((r) => r.categoryName === 'Groceries');
     expect(g).toEqual({ categoryName: 'Groceries', target: 50000, budgeted: 0, gap: 50000 });
   });
+
+  it('uses the live category name over the stored name for renames', () => {
+    const db = makeDb();
+    setTarget(db, 'cat1', 'Old Name', 50000);
+    const result = getTargetsWithLive(db, [
+      { id: 'cat1', name: 'New Name', budgeted: 30000 },
+    ]);
+    const r = result.find((x) => x.target === 50000);
+    expect(r).toEqual({ categoryName: 'New Name', target: 50000, budgeted: 30000, gap: 20000 });
+  });
 });
