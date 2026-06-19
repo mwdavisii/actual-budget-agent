@@ -12,8 +12,8 @@ export function createBudgetRouter(_deps: AppDeps): Router {
     if (month && !/^\d{4}-\d{2}$/.test(month)) {
       throw new ApiError(400, 'month must be in YYYY-MM format');
     }
-    const cats = await withActualRead(() => getBudgetStatus(month)).catch(actualDown);
-    res.json(cats);
+    const status = await withActualRead(() => getBudgetStatus(month)).catch(actualDown);
+    res.json(status);
   });
 
   router.get('/schedules', async (_req, res) => {

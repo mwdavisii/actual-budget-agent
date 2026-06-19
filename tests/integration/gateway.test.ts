@@ -107,6 +107,13 @@ describe('budget/schedules/categories routes', () => {
     expect(res.status).toBe(400);
   });
 
+  it('GET /budget/status with a valid month is forwarded to the handler', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).get('/budget/status?month=2026-01').set(AUTH);
+    expect(res.status).toBe(200);
+    expect(res.body[0].name).toBe('Groceries');
+  });
+
   it('GET /schedules returns schedules', async () => {
     const { app } = createApp(makeDeps());
     const res = await request(app).get('/schedules').set(AUTH);
