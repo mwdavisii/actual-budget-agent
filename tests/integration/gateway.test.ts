@@ -128,3 +128,12 @@ describe('budget/schedules/categories routes', () => {
     expect(res.body).toEqual([{ group: 'Food', categories: ['Groceries'] }]);
   });
 });
+
+describe('accounts route', () => {
+  it('POST /accounts/sync returns synced/failed', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).post('/accounts/sync').set(AUTH).send({});
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ synced: ['Checking'], failed: [] });
+  });
+});
