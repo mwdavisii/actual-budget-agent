@@ -26,7 +26,7 @@ All routes except the health probes require `Authorization: Bearer <GATEWAY_TOKE
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/healthz` | Liveness probe — always 200 |
-| `GET` | `/readyz` | Readiness probe — 200 once Actual connection is warm |
+| `GET` | `/readyz` | Readiness probe — 200 once the HTTP server is listening (the Actual connection warms lazily on the first data request) |
 | `GET` | `/tx/uncategorized` | List uncategorized transactions |
 | `POST` | `/tx/query` | Query transactions with filters |
 | `POST` | `/tx/:id/category` | Set the category on a transaction |

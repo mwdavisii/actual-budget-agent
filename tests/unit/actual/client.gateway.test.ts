@@ -52,6 +52,13 @@ describe('gateway Actual connection', () => {
     expect(actualApi.downloadBudget).toHaveBeenCalledTimes(2);
   });
 
+  it('a read immediately after a write is served from the warm cache (no extra download)', async () => {
+    await withActualWrite(async () => 'w');   // forced download #1 + sync
+    await withActualRead(async () => 'r');     // within TTL → no new download
+    expect(actualApi.downloadBudget).toHaveBeenCalledTimes(1);
+    expect(actualApi.sync).toHaveBeenCalledTimes(1);
+  });
+
   it('exposes the read/write helpers', async () => {
     expect(typeof withActualRead).toBe('function');
     expect(typeof withActualWrite).toBe('function');

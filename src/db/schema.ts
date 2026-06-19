@@ -25,7 +25,10 @@ export function runMigrations(db: Database.Database): void {
     try {
       db.prepare(sql).run();
     } catch (err: unknown) {
-      // ALTER TABLE fails if column already exists — that's expected on restart
+      // Current DDL is CREATE TABLE IF NOT EXISTS only, so this guard is
+      // dormant. It's retained for forward-compatibility: when the deferred
+      // cleanup suite is revived it may add ALTER TABLE migrations, which fail
+      // with "duplicate column" on restart once already applied.
       const msg = err instanceof Error ? err.message : String(err);
       if (sql.startsWith('ALTER TABLE') && msg.includes('duplicate column')) {
         continue;
