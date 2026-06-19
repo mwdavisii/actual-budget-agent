@@ -36,7 +36,9 @@ export function createTransactionsRouter(_deps: AppDeps): Router {
     try {
       await withActualWrite(() => setCategoryForTransaction(id, category));
     } catch (e) {
-      if (/not found/i.test(String(e))) throw new ApiError(404, String(e));
+      // Match only the category-resolution failure (owned by setCategoryForTransaction:
+      // `Category "X" not found`). A transaction-not-found from Actual stays a 502.
+      if (/category .* not found/i.test(String(e))) throw new ApiError(404, String(e));
       throw new ApiError(502, `actual unreachable: ${String(e)}`);
     }
     res.json({ success: true, txId: id, category });

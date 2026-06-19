@@ -81,6 +81,7 @@ describe('transactions routes', () => {
     const { app } = createApp(makeDeps());
     const res = await request(app).post('/tx/t9/category').set(AUTH).send({});
     expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/category/i);
   });
 
   it('POST /tx/:id/category with unknown category → 404', async () => {
@@ -88,5 +89,6 @@ describe('transactions routes', () => {
     const { app } = createApp(makeDeps());
     const res = await request(app).post('/tx/t9/category').set(AUTH).send({ category: 'Nope' });
     expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/not found/i);
   });
 });
