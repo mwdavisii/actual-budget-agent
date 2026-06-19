@@ -21,6 +21,11 @@ describe('bearerAuth', () => {
     expect(res.status).toBe(401);
   });
 
+  it('rejects a wrong token with the same length', async () => {
+    const res = await request(makeApp('secret')).get('/protected').set('Authorization', 'Bearer sekret');
+    expect(res.status).toBe(401);
+  });
+
   it('accepts the correct token', async () => {
     const res = await request(makeApp('secret')).get('/protected').set('Authorization', 'Bearer secret');
     expect(res.status).toBe(200);

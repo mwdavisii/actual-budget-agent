@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 
 export function bearerAuth(token: string) {
+  if (!token) throw new Error('bearerAuth: token must not be empty');
   const expected = Buffer.from(token);
   return (req: Request, res: Response, next: NextFunction): void => {
     const header = req.headers['authorization'];
