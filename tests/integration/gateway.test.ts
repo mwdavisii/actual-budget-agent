@@ -176,4 +176,11 @@ describe('targets routes', () => {
     const res = await request(app).post('/targets/import').set(AUTH).send({ nope: true });
     expect(res.status).toBe(400);
   });
+
+  it('POST /targets/import with malformed target elements → 400 (not 500)', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).post('/targets/import').set(AUTH).send({ targets: [{ foo: 'bar' }] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/categoryId/i);
+  });
 });

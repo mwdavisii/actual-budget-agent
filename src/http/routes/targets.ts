@@ -7,9 +7,20 @@ import {
   getUnderfundedCategories,
   exportTargets,
   importTargets,
+  type TargetExport,
 } from '../../db/targets';
 import { ApiError, actualDown } from '../errors';
 import type { AppDeps } from '../app';
+
+function isValidTarget(x: unknown): x is TargetExport['targets'][number] {
+  if (typeof x !== 'object' || x === null) return false;
+  const t = x as Record<string, unknown>;
+  return (
+    typeof t['categoryId'] === 'string' &&
+    typeof t['categoryName'] === 'string' &&
+    typeof t['targetAmount'] === 'number'
+  );
+}
 
 export function createTargetsRouter(deps: AppDeps): Router {
   const { db } = deps;
@@ -40,7 +51,10 @@ export function createTargetsRouter(deps: AppDeps): Router {
     if (!Array.isArray(data.targets)) {
       throw new ApiError(400, 'body must include a "targets" array');
     }
-    const count = importTargets(db, { exportedAt: new Date().toISOString(), targets: data.targets as never });
+    if (!data.targets.every(isValidTarget)) {
+      throw new ApiError(400, 'each target must have categoryId (string), categoryName (string), and targetAmount (number)');
+    }
+    const count = importTargets(db, { exportedAt: new Date().toISOString(), targets: data.targets });
     res.json({ success: true, imported: count });
   });
 
