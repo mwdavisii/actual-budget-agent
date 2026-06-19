@@ -32,5 +32,5 @@ export function createApp(deps: AppDeps) {
 
   app.use(errorHandler);
 
-  return { app, setReady: () => { ready = true; } };
+  return { app, setReady: () => { if (!ready) ready = true; } };
 }

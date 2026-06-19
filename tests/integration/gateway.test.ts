@@ -28,6 +28,8 @@ describe('gateway app skeleton', () => {
   });
 
   it('a protected path without a token returns 401', async () => {
+    // 401 comes from bearerAuth firing before the (empty) targets router is
+    // reached — proving auth sits in front of all routers, not from /targets itself.
     const { app } = createApp(makeDeps());
     const res = await request(app).get('/targets');
     expect(res.status).toBe(401);
