@@ -1,0 +1,47 @@
+{
+  "name": "Consult Pennyworth",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "bishop_payload" },
+            { "name": "bishop_instruction" }
+          ]
+        }
+      },
+      "id": "node-input",
+      "name": "Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-512, -352]
+    },
+    {
+      "parameters": {
+        "command": "=PATH=/Users/mwdavisii/.local/bin:/opt/homebrew/bin:$PATH hermes chat -Q -p pennyworth -q {{ JSON.stringify((($json.bishop_instruction || '') + '\\n\\nPayload:\\n' + (typeof $json.bishop_payload === 'object' ? JSON.stringify($json.bishop_payload) : ($json.bishop_payload || ''))).slice(0, 16000)).replace(/[`$]/g, '\\\\$&') }} | PATH=/Users/mwdavisii/.local/bin:/opt/homebrew/bin:$PATH hermes send --to telegram:{{ $env.PENNYWORTH_TELEGRAM_CHAT_ID }} --quiet",
+        "cwd": "/Users/mwdavisii/code/productivity/config/scripts"
+      },
+      "id": "node-deliver",
+      "name": "Deliver via Pennyworth",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [-240, -352],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "retryOnFail": false,
+      "credentials": {
+        "sshPassword": { "id": "REPLACE_SSH_PASSWORD_CRED_ID", "name": "SSH Password account" }
+      }
+    }
+  ],
+  "connections": {
+    "Input": { "main": [[{ "node": "Deliver via Pennyworth", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Chicago",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "REPLACE_ERROR_WORKFLOW_ID"
+  }
+}
