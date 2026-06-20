@@ -1,0 +1,187 @@
+{
+  "name": "Budget Categorize",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 8 * * *" }
+          ]
+        }
+      },
+      "id": "node-schedule",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [240, 304]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.GATEWAY_URL }}/accounts/sync",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "node-sync-accounts",
+      "name": "Sync Accounts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [464, 304],
+      "credentials": {
+        "httpHeaderAuth": { "id": "REPLACE_BUDGET_GATEWAY_CRED_ID", "name": "Budget Gateway" }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.GATEWAY_URL }}/tx/uncategorized",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "node-get-uncategorized",
+      "name": "Get Uncategorized",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [688, 304],
+      "credentials": {
+        "httpHeaderAuth": { "id": "REPLACE_BUDGET_GATEWAY_CRED_ID", "name": "Budget Gateway" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "version": 2, "leftValue": "", "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-if-no-tx",
+      "name": "No Transactions",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [912, 304]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.GATEWAY_URL }}/categories",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "node-get-categories",
+      "name": "Get Categories",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1120, 192],
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": { "id": "REPLACE_BUDGET_GATEWAY_CRED_ID", "name": "Budget Gateway" }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.GATEWAY_URL }}/budget/status",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "month", "value": "={{ new Date().toISOString().slice(0,7) }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-get-budget-status",
+      "name": "Get Budget Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1120, 432],
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": { "id": "REPLACE_BUDGET_GATEWAY_CRED_ID", "name": "Budget Gateway" }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "node-merge",
+      "name": "Merge Context",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [1344, 304]
+    },
+    {
+      "parameters": {
+        "jsCode": "const syncItem = $('Sync Accounts').first();\nconst syncFailed = !!(syncItem && syncItem.json && syncItem.json.error) ||\n  (syncItem && syncItem.json && Array.isArray(syncItem.json.failed) && syncItem.json.failed.length > 0);\n\nconst txArray = $('Get Uncategorized').all().map(i => i.json).filter(t => t && t.id);\n\nconst catGroups = $('Get Categories').all().map(i => i.json);\nconst categoryList = catGroups\n  .map(g => (g.categories || []).map(c => `- ${g.group} / ${c}`).join('\\n'))\n  .filter(Boolean)\n  .join('\\n');\n\nconst budgetData = $('Get Budget Status').all().map(i => i.json);\nconst month = new Date().toISOString().slice(0, 7);\nconst statusRows = budgetData.filter(b => b && !b.isIncome);\nconst overspent = statusRows.filter(b => b.available < 0);\nconst rest = statusRows.filter(b => b.available >= 0)\n  .sort((a, b) => Math.abs(b.spent) - Math.abs(a.spent));\nconst snapshot = [...overspent, ...rest].slice(0, 10)\n  .map(b => `- ${b.name}: $${(b.budgeted / 100).toFixed(2)} budgeted, $${(Math.abs(b.spent) / 100).toFixed(2)} spent, $${(Math.abs(b.available) / 100).toFixed(2)} ${b.available < 0 ? 'over' : 'remaining'}`)\n  .join('\\n');\n\nconst txList = txArray\n  .map((tx, i) => `${i + 1}. ${tx.date}  ${(tx.notes && String(tx.notes).trim()) ? String(tx.notes).trim() : tx.payee}  ${tx.amount < 0 ? '-' : '+'}$${(Math.abs(tx.amount) / 100).toFixed(2)}  (id: ${tx.id})`)\n  .join('\\n');\n\nconst syncNote = syncFailed\n  ? '\\nNote: bank sync returned errors - data may not include the latest imports.\\n'\n  : '';\n\nconst n = txArray.length;\n\nconst bishop_instruction =\n  `You are categorizing ${n} transaction${n !== 1 ? 's' : ''} against this Actual Budget.${syncNote}\\n\\nAvailable categories (call apply_category with the EXACT leaf name only - the part after the last \"/\"):\\n${categoryList}\\n\\nBudget snapshot (${month}):\\n${snapshot}\\n\\nFor each transaction in the payload below, apply the most appropriate category via apply_category, then send me a brief summary grouped by category.`;\n\nconst bishop_payload = txList;\n\nreturn [{ json: { bishop_instruction, bishop_payload, count: n } }];"
+      },
+      "id": "node-build-prompt",
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1568, 304]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE_CONSULT_PENNYWORTH_WORKFLOW_ID",
+          "mode": "list",
+          "cachedResultName": "Consult Pennyworth"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "bishop_instruction": "={{ $json.bishop_instruction }}",
+            "bishop_payload": "={{ $json.bishop_payload }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            { "id": "bishop_payload", "displayName": "bishop_payload", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string", "removed": false },
+            { "id": "bishop_instruction", "displayName": "bishop_instruction", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string", "removed": false }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "node-call-consult-pennyworth",
+      "name": "Call 'Consult Pennyworth'",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [1776, 304]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "Sync Accounts", "type": "main", "index": 0 }]] },
+    "Sync Accounts": { "main": [[{ "node": "Get Uncategorized", "type": "main", "index": 0 }]] },
+    "Get Uncategorized": { "main": [[{ "node": "No Transactions", "type": "main", "index": 0 }]] },
+    "No Transactions": {
+      "main": [
+        [],
+        [
+          { "node": "Get Categories", "type": "main", "index": 0 },
+          { "node": "Get Budget Status", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Get Categories": { "main": [[{ "node": "Merge Context", "type": "main", "index": 0 }]] },
+    "Get Budget Status": { "main": [[{ "node": "Merge Context", "type": "main", "index": 1 }]] },
+    "Merge Context": { "main": [[{ "node": "Build Prompt", "type": "main", "index": 0 }]] },
+    "Build Prompt": { "main": [[{ "node": "Call 'Consult Pennyworth'", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "REPLACE_ERROR_WORKFLOW_ID"
+  }
+}
