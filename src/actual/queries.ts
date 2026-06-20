@@ -18,6 +18,7 @@ export interface Transaction {
   date: string;
   amount: number;
   payee: string;
+  payeeName: string;
   category: string | null;
   notes: string | null;
   account: string;
@@ -61,11 +62,20 @@ export async function getCategories(): Promise<CategoryGroupView[]> {
     }));
 }
 
+// Maps payee id -> human-readable payee name. Actual stores payee as a UUID on
+// each transaction; the LLM needs the name to identify and reason about a
+// transaction (e.g. when correcting an already-categorized one).
+async function getPayeeMap(): Promise<Record<string, string>> {
+  const payees = (await actualApi.getPayees()) as Array<{ id: string; name?: string }>;
+  return Object.fromEntries(payees.map((p) => [p.id, p.name ?? '']));
+}
+
 export async function getUncategorizedTransactions(): Promise<Transaction[]> {
   const accounts = await actualApi.getAccounts() as Array<{ id: string; closed: boolean; offbudget: boolean }>;
   const onBudgetIds = accounts.filter((a) => !a.closed && !a.offbudget).map((a) => a.id);
 
   const accountMap = Object.fromEntries(accounts.map((a) => [a.id, (a as any).name as string]));
+  const payeeMap = await getPayeeMap();
 
   const result = await actualApi.runQuery(
     actualApi.q('transactions')
@@ -80,6 +90,7 @@ export async function getUncategorizedTransactions(): Promise<Transaction[]> {
   return (result as { data: Record<string, unknown>[] }).data.map((tx) => {
     const sanitized = sanitizeObject(tx) as Record<string, unknown>;
     sanitized.accountName = accountMap[tx['account'] as string] ?? '';
+    sanitized.payeeName = payeeMap[tx['payee'] as string] ?? '';
     return sanitized as unknown as Transaction;
   });
 }
@@ -92,6 +103,10 @@ export async function getTransactions(filters: {
   amountMin?: number;
   amountMax?: number;
 }): Promise<Transaction[]> {
+  const accounts = (await actualApi.getAccounts()) as Array<{ id: string; name?: string }>;
+  const accountMap = Object.fromEntries(accounts.map((a) => [a.id, a.name ?? '']));
+  const payeeMap = await getPayeeMap();
+
   let query = actualApi.q('transactions')
     .select(['id', 'date', 'amount', 'payee', 'category', 'notes', 'account']);
   if (filters.startDate) query = query.filter({ date: { $gte: filters.startDate } });
@@ -101,7 +116,12 @@ export async function getTransactions(filters: {
   if (filters.amountMin !== undefined) query = query.filter({ amount: { $gte: filters.amountMin } });
   if (filters.amountMax !== undefined) query = query.filter({ amount: { $lte: filters.amountMax } });
   const result = await actualApi.runQuery(query);
-  return (result as { data: Record<string, unknown>[] }).data.map((tx) => sanitizeObject(tx) as unknown as Transaction);
+  return (result as { data: Record<string, unknown>[] }).data.map((tx) => {
+    const sanitized = sanitizeObject(tx) as Record<string, unknown>;
+    sanitized.accountName = accountMap[tx['account'] as string] ?? '';
+    sanitized.payeeName = payeeMap[tx['payee'] as string] ?? '';
+    return sanitized as unknown as Transaction;
+  });
 }
 
 export async function getBudgetStatus(month?: string): Promise<CategoryStatus[]> {
