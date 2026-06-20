@@ -25,8 +25,6 @@ Schedule Trigger (daily 08:00)
   → Sync Accounts            POST {GATEWAY_URL}/accounts/sync   (Continue on Fail)
   → Get Uncategorized        GET  {GATEWAY_URL}/tx/uncategorized
   → No Transactions (IF)     length == 0 ? stop (silent) : continue
-  → [ Get Categories ‖ Get Budget Status ]   (both executeOnce — see note)
-  → Merge Context
   → Build Prompt             Code: emits bishop_instruction + bishop_payload
   → Call 'Consult Pennyworth'  Execute Sub-workflow
 
@@ -36,10 +34,13 @@ Consult Pennyworth:
                                   | hermes send --to telegram:$PENNYWORTH_TELEGRAM_CHAT_ID --quiet
 ```
 
-**Why `executeOnce` on the two GET nodes:** the IF node forwards one item per
-uncategorized transaction. Without `executeOnce`, those HTTP nodes would fire
-once per transaction (N× fan-out). `executeOnce` makes each run a single time;
-`Build Prompt` then re-aggregates everything with `$('node').all()`.
+**Categories/budget come from MCP, not the prompt.** n8n only fetches the
+transaction list. `bishop_instruction` tells pennyworth to call the
+budget-gateway MCP tools itself — `list_categories` (apply the leaf name only)
+and, if useful, `get_budget_status`. This keeps the n8n workflow simple (no
+category/budget pre-fetch, no fan-out), keeps the MCP gateway as the single
+source of truth for categories, and lets pennyworth pull budget context only
+when it needs it.
 
 **Why a sub-workflow for delivery:** mirrors the proven `Consult Cato` pattern.
 Keeping the SSH/Hermes/Telegram step in one reusable workflow isolates the

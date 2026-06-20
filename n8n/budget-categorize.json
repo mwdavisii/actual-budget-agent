@@ -74,55 +74,7 @@
     },
     {
       "parameters": {
-        "url": "={{ $env.GATEWAY_URL }}/categories",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "options": {}
-      },
-      "id": "node-get-categories",
-      "name": "Get Categories",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [1120, 192],
-      "executeOnce": true,
-      "credentials": {
-        "httpHeaderAuth": { "id": "REPLACE_BUDGET_GATEWAY_CRED_ID", "name": "Budget Gateway" }
-      }
-    },
-    {
-      "parameters": {
-        "url": "={{ $env.GATEWAY_URL }}/budget/status",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "month", "value": "={{ new Date().toISOString().slice(0,7) }}" }
-          ]
-        },
-        "options": {}
-      },
-      "id": "node-get-budget-status",
-      "name": "Get Budget Status",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [1120, 432],
-      "executeOnce": true,
-      "credentials": {
-        "httpHeaderAuth": { "id": "REPLACE_BUDGET_GATEWAY_CRED_ID", "name": "Budget Gateway" }
-      }
-    },
-    {
-      "parameters": {},
-      "id": "node-merge",
-      "name": "Merge Context",
-      "type": "n8n-nodes-base.merge",
-      "typeVersion": 3.2,
-      "position": [1344, 304]
-    },
-    {
-      "parameters": {
-        "jsCode": "const syncItem = $('Sync Accounts').first();\nconst syncFailed = !!(syncItem && syncItem.json && syncItem.json.error) ||\n  (syncItem && syncItem.json && Array.isArray(syncItem.json.failed) && syncItem.json.failed.length > 0);\n\nconst txArray = $('Get Uncategorized').all().map(i => i.json).filter(t => t && t.id);\n\nconst catGroups = $('Get Categories').all().map(i => i.json);\nconst categoryList = catGroups\n  .map(g => (g.categories || []).map(c => `- ${g.group} / ${c}`).join('\\n'))\n  .filter(Boolean)\n  .join('\\n');\n\nconst budgetData = $('Get Budget Status').all().map(i => i.json);\nconst month = new Date().toISOString().slice(0, 7);\nconst statusRows = budgetData.filter(b => b && !b.isIncome);\nconst overspent = statusRows.filter(b => b.available < 0);\nconst rest = statusRows.filter(b => b.available >= 0)\n  .sort((a, b) => Math.abs(b.spent) - Math.abs(a.spent));\nconst snapshot = [...overspent, ...rest].slice(0, 10)\n  .map(b => `- ${b.name}: $${(b.budgeted / 100).toFixed(2)} budgeted, $${(Math.abs(b.spent) / 100).toFixed(2)} spent, $${(Math.abs(b.available) / 100).toFixed(2)} ${b.available < 0 ? 'over' : 'remaining'}`)\n  .join('\\n');\n\nconst txList = txArray\n  .map((tx, i) => `${i + 1}. ${tx.date}  ${(tx.notes && String(tx.notes).trim()) ? String(tx.notes).trim() : tx.payee}  ${tx.amount < 0 ? '-' : '+'}$${(Math.abs(tx.amount) / 100).toFixed(2)}  (id: ${tx.id})`)\n  .join('\\n');\n\nconst syncNote = syncFailed\n  ? '\\nNote: bank sync returned errors - data may not include the latest imports.\\n'\n  : '';\n\nconst n = txArray.length;\n\nconst bishop_instruction =\n  `You are categorizing ${n} transaction${n !== 1 ? 's' : ''} against this Actual Budget.${syncNote}\\n\\nAvailable categories (call apply_category with the EXACT leaf name only - the part after the last \"/\"):\\n${categoryList}\\n\\nBudget snapshot (${month}):\\n${snapshot}\\n\\nFor each transaction in the payload below, apply the most appropriate category via apply_category, then send me a brief summary grouped by category.`;\n\nconst bishop_payload = txList;\n\nreturn [{ json: { bishop_instruction, bishop_payload, count: n } }];"
+        "jsCode": "const syncItem = $('Sync Accounts').first();\nconst syncFailed = !!(syncItem && syncItem.json && syncItem.json.error) ||\n  (syncItem && syncItem.json && Array.isArray(syncItem.json.failed) && syncItem.json.failed.length > 0);\n\nconst txArray = $('Get Uncategorized').all().map(i => i.json).filter(t => t && t.id);\n\nconst txList = txArray\n  .map((tx, i) => `${i + 1}. ${tx.date}  ${(tx.notes && String(tx.notes).trim()) ? String(tx.notes).trim() : tx.payee}  ${tx.amount < 0 ? '-' : '+'}$${(Math.abs(tx.amount) / 100).toFixed(2)}  (id: ${tx.id})`)\n  .join('\\n');\n\nconst syncNote = syncFailed\n  ? '\\nNote: bank sync returned errors - data may not include the latest imports.\\n'\n  : '';\n\nconst n = txArray.length;\n\nconst bishop_instruction =\n  `You are categorizing ${n} transaction${n !== 1 ? 's' : ''} in this Actual Budget.${syncNote}\\n\\nUse the budget-gateway MCP tools:\\n- Call list_categories first to get the valid category names. Apply categories with the EXACT leaf name only (the part after the last \"/\").\\n- Optionally call get_budget_status for current-month budget context.\\n\\nFor each transaction in the payload below, choose the most appropriate category and apply it via apply_category. Then send me a brief summary grouped by category.`;\n\nconst bishop_payload = txList;\n\nreturn [{ json: { bishop_instruction, bishop_payload, count: n } }];"
       },
       "id": "node-build-prompt",
       "name": "Build Prompt",
@@ -168,15 +120,9 @@
     "No Transactions": {
       "main": [
         [],
-        [
-          { "node": "Get Categories", "type": "main", "index": 0 },
-          { "node": "Get Budget Status", "type": "main", "index": 0 }
-        ]
+        [{ "node": "Build Prompt", "type": "main", "index": 0 }]
       ]
     },
-    "Get Categories": { "main": [[{ "node": "Merge Context", "type": "main", "index": 0 }]] },
-    "Get Budget Status": { "main": [[{ "node": "Merge Context", "type": "main", "index": 1 }]] },
-    "Merge Context": { "main": [[{ "node": "Build Prompt", "type": "main", "index": 0 }]] },
     "Build Prompt": { "main": [[{ "node": "Call 'Consult Pennyworth'", "type": "main", "index": 0 }]] }
   },
   "settings": {
