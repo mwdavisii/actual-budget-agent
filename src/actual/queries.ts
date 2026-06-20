@@ -107,15 +107,34 @@ export async function getTransactions(filters: {
 export async function getBudgetStatus(month?: string): Promise<CategoryStatus[]> {
   const targetMonth = month ?? new Date().toISOString().slice(0, 7);
   const data = await actualApi.getBudgetMonth(targetMonth);
+
+  // getBudgetMonth() returns every category (including hidden ones and those in
+  // hidden groups) and its objects don't reliably carry a `hidden` flag. Use
+  // getCategoryGroups() — the authoritative source for visibility, same as
+  // getCategories() — to build the set of non-hidden category ids to keep.
+  const groups = (await actualApi.getCategoryGroups()) as Array<{
+    hidden?: boolean;
+    categories?: Array<{ id: string; hidden?: boolean }>;
+  }>;
+  const visible = new Set<string>();
+  for (const g of groups) {
+    if (g.hidden) continue;
+    for (const c of g.categories ?? []) {
+      if (!c.hidden) visible.add(c.id);
+    }
+  }
+
   return (data.categoryGroups as Array<{ is_income?: boolean; categories: unknown[] }>).flatMap((g) =>
-    (g.categories as Array<Record<string, unknown>>).map((c) => ({
-      id: String(c['id']),
-      name: sanitizeObject({ name: String(c['name']) }).name,
-      budgeted: Number(c['budgeted']),
-      spent: Number(c['spent']),
-      available: Number(c['balance']),
-      isIncome: g.is_income === true,
-    }))
+    (g.categories as Array<Record<string, unknown>>)
+      .filter((c) => visible.has(String(c['id'])))
+      .map((c) => ({
+        id: String(c['id']),
+        name: sanitizeObject({ name: String(c['name']) }).name,
+        budgeted: Number(c['budgeted']),
+        spent: Number(c['spent']),
+        available: Number(c['balance']),
+        isIncome: g.is_income === true,
+      }))
   );
 }
 
