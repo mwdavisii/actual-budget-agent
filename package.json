@@ -20,7 +20,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@actual-app/api": "26.5.2",
+    "@actual-app/api": "26.9.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.8.0",
     "express": "^5.2.1",
