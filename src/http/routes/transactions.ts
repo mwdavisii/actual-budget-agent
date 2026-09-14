@@ -22,6 +22,7 @@ export function createTransactionsRouter(_deps: AppDeps): Router {
         categoryId: f['categoryId'] as string | undefined,
         amountMin: f['amountMin'] as number | undefined,
         amountMax: f['amountMax'] as number | undefined,
+        cleared: typeof f['cleared'] === 'boolean' ? f['cleared'] : undefined,
       })
     ).catch(actualDown);
     res.json(txs);

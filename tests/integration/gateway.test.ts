@@ -3,7 +3,7 @@ import request from 'supertest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../src/db/schema';
 import { createApp } from '../../src/http/app';
-import { setCategoryForTransaction } from '../../src/actual/queries';
+import { getAccounts, getTransactions, setCategoryForTransaction } from '../../src/actual/queries';
 
 vi.mock('../../src/actual/client', () => ({
   withActualRead: (fn: () => Promise<unknown>) => fn(),
@@ -12,6 +12,7 @@ vi.mock('../../src/actual/client', () => ({
 }));
 
 vi.mock('../../src/actual/queries', () => ({
+  getAccounts: vi.fn().mockResolvedValue([{ id: 'a1', name: 'Checking', closed: false, offbudget: false, balance: 12345 }]),
   getUncategorizedTransactions: vi.fn().mockResolvedValue([{ id: 't1', payee: 'Shop' }]),
   getTransactions: vi.fn().mockResolvedValue([{ id: 't2' }]),
   setCategoryForTransaction: vi.fn().mockResolvedValue(undefined),
@@ -68,6 +69,20 @@ describe('transactions routes', () => {
     const res = await request(app).post('/tx/query').set(AUTH).send({ startDate: '2026-01-01' });
     expect(res.status).toBe(200);
     expect(res.body).toEqual([{ id: 't2' }]);
+  });
+
+  it('POST /tx/query forwards boolean cleared to getTransactions', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).post('/tx/query').set(AUTH).send({ cleared: false });
+    expect(res.status).toBe(200);
+    expect(getTransactions).toHaveBeenCalledWith(expect.objectContaining({ cleared: false }));
+  });
+
+  it('POST /tx/query ignores non-boolean cleared values', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).post('/tx/query').set(AUTH).send({ cleared: 'yes' });
+    expect(res.status).toBe(200);
+    expect(getTransactions).toHaveBeenCalledWith(expect.not.objectContaining({ cleared: expect.anything() }));
   });
 
   it('POST /tx/:id/category with a valid body succeeds', async () => {
@@ -135,6 +150,27 @@ describe('accounts route', () => {
     const res = await request(app).post('/accounts/sync').set(AUTH).send({});
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ synced: ['Checking'], failed: [] });
+  });
+
+  it('GET /accounts returns accounts with balances', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).get('/accounts').set(AUTH);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([{ id: 'a1', name: 'Checking', closed: false, offbudget: false, balance: 12345 }]);
+  });
+
+  it('GET /accounts without a token returns 401', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).get('/accounts');
+    expect(res.status).toBe(401);
+  });
+
+  it('GET /accounts propagates a query failure to 502', async () => {
+    (getAccounts as any).mockRejectedValueOnce(new Error('actual is down'));
+    const { app } = createApp(makeDeps());
+    const res = await request(app).get('/accounts').set(AUTH);
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/actual unreachable/i);
   });
 });
 
