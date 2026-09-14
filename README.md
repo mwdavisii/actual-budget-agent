@@ -30,12 +30,13 @@ All routes except the health probes require `Authorization: Bearer <GATEWAY_TOKE
 | `GET` | `/healthz` | Liveness probe — always 200 |
 | `GET` | `/readyz` | Readiness probe — 200 once the HTTP server is listening (the Actual connection warms lazily on the first data request) |
 | `GET` | `/tx/uncategorized` | List uncategorized transactions |
-| `POST` | `/tx/query` | Query transactions with filters |
+| `POST` | `/tx/query` | Query transactions with filters (optionally filter by `cleared` boolean) |
 | `POST` | `/tx/:id/category` | Set the category on a transaction |
 | `GET` | `/budget/status` | Current month budget status |
 | `GET` | `/schedules` | Upcoming scheduled transactions |
 | `GET` | `/categories` | All budget category groups and categories |
 | `POST` | `/accounts/sync` | Trigger a bank sync across all linked accounts |
+| `GET` | `/accounts` | List accounts with balances (cents) |
 | `GET` | `/targets` | Retrieve stored monthly targets |
 | `POST` | `/targets/seed` | Snapshot current budgeted amounts as target baseline |
 | `GET` | `/targets/underfunded` | Categories where current budget is below target |

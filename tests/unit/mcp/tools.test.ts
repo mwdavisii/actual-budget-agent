@@ -11,6 +11,7 @@ vi.mock('../../../src/actual/client', () => ({
 vi.mock('../../../src/actual/queries', () => ({
   getUncategorizedTransactions: vi.fn().mockResolvedValue([{ id: 't1', payee: 'Shop' }]),
   getTransactions: vi.fn().mockResolvedValue([{ id: 't2' }]),
+  getAccounts: vi.fn().mockResolvedValue([{ id: 'a1', name: 'Checking', closed: false, offbudget: false, balance: 12345 }]),
   getBudgetStatus: vi.fn().mockResolvedValue([{ id: 'c1', name: 'Groceries', budgeted: 100, spent: 0, available: 100, isIncome: false }]),
   getCategories: vi.fn().mockResolvedValue([{ group: 'Food', categories: ['Groceries'] }]),
   getScheduledTransactions: vi.fn().mockResolvedValue([{ id: 's1' }]),
@@ -53,9 +54,16 @@ describe('budget MCP tools', () => {
   it('lists all read tools', async () => {
     const client = await connectClient();
     const names = (await client.listTools()).tools.map((t) => t.name);
-    for (const n of ['query_transactions', 'get_budget_status', 'list_categories', 'get_schedules']) {
+    for (const n of ['query_transactions', 'get_budget_status', 'list_categories', 'get_schedules', 'get_accounts']) {
       expect(names).toContain(n);
     }
+  });
+
+  it('get_accounts returns accounts with balances', async () => {
+    const client = await connectClient();
+    const res = await client.callTool({ name: 'get_accounts', arguments: {} });
+    const parsed = JSON.parse(textOf(res as never));
+    expect(parsed).toEqual([{ id: 'a1', name: 'Checking', closed: false, offbudget: false, balance: 12345 }]);
   });
 
   it('query_transactions forwards filters and returns results', async () => {
@@ -64,6 +72,14 @@ describe('budget MCP tools', () => {
     const res = await client.callTool({ name: 'query_transactions', arguments: { startDate: '2026-01-01' } });
     expect(textOf(res as never)).toContain('t2');
     expect(getTransactions).toHaveBeenCalledWith(expect.objectContaining({ startDate: '2026-01-01' }));
+  });
+
+  it('query_transactions forwards cleared=false to getTransactions', async () => {
+    const { getTransactions } = await import('../../../src/actual/queries');
+    const client = await connectClient();
+    const res = await client.callTool({ name: 'query_transactions', arguments: { cleared: false } });
+    expect(textOf(res as never)).toContain('t2');
+    expect(getTransactions).toHaveBeenCalledWith(expect.objectContaining({ cleared: false }));
   });
 
   it('get_budget_status returns categories', async () => {

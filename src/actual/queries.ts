@@ -23,6 +23,15 @@ export interface Transaction {
   notes: string | null;
   account: string;
   accountName: string;
+  cleared: boolean;
+}
+
+export interface Account {
+  id: string;
+  name: string;
+  closed: boolean;
+  offbudget: boolean;
+  balance: number;
 }
 
 export interface CategoryStatus {
@@ -62,6 +71,26 @@ export async function getCategories(): Promise<CategoryGroupView[]> {
     }));
 }
 
+export async function getAccounts(): Promise<Account[]> {
+  const accounts = (await actualApi.getAccounts()) as Array<{
+    id: string;
+    name?: string;
+    closed: boolean;
+    offbudget: boolean;
+  }>;
+  const result: Account[] = [];
+  for (const a of accounts) {
+    result.push({
+      id: a.id,
+      name: a.name ?? '',
+      closed: a.closed,
+      offbudget: a.offbudget,
+      balance: Number(await actualApi.getAccountBalance(a.id)),
+    });
+  }
+  return result;
+}
+
 // Maps payee id -> human-readable payee name. Actual stores payee as a UUID on
 // each transaction; the LLM needs the name to identify and reason about a
 // transaction (e.g. when correcting an already-categorized one).
@@ -85,12 +114,13 @@ export async function getUncategorizedTransactions(): Promise<Transaction[]> {
         account: { $oneof: onBudgetIds },
       })
       .options({ splits: 'inline' })
-      .select(['id', 'date', 'amount', 'payee', 'notes', 'account'])
+      .select(['id', 'date', 'amount', 'payee', 'notes', 'account', 'cleared'])
   );
   return (result as { data: Record<string, unknown>[] }).data.map((tx) => {
     const sanitized = sanitizeObject(tx) as Record<string, unknown>;
     sanitized.accountName = accountMap[tx['account'] as string] ?? '';
     sanitized.payeeName = payeeMap[tx['payee'] as string] ?? '';
+    sanitized.cleared = Boolean(tx['cleared']);
     return sanitized as unknown as Transaction;
   });
 }
@@ -102,24 +132,27 @@ export async function getTransactions(filters: {
   categoryId?: string;
   amountMin?: number;
   amountMax?: number;
+  cleared?: boolean;
 }): Promise<Transaction[]> {
   const accounts = (await actualApi.getAccounts()) as Array<{ id: string; name?: string }>;
   const accountMap = Object.fromEntries(accounts.map((a) => [a.id, a.name ?? '']));
   const payeeMap = await getPayeeMap();
 
   let query = actualApi.q('transactions')
-    .select(['id', 'date', 'amount', 'payee', 'category', 'notes', 'account']);
+    .select(['id', 'date', 'amount', 'payee', 'category', 'notes', 'account', 'cleared']);
   if (filters.startDate) query = query.filter({ date: { $gte: filters.startDate } });
   if (filters.endDate) query = query.filter({ date: { $lte: filters.endDate } });
   if (filters.accountId) query = query.filter({ account: filters.accountId });
   if (filters.categoryId) query = query.filter({ category: filters.categoryId });
   if (filters.amountMin !== undefined) query = query.filter({ amount: { $gte: filters.amountMin } });
   if (filters.amountMax !== undefined) query = query.filter({ amount: { $lte: filters.amountMax } });
+  if (filters.cleared !== undefined) query = query.filter({ cleared: filters.cleared });
   const result = await actualApi.runQuery(query);
   return (result as { data: Record<string, unknown>[] }).data.map((tx) => {
     const sanitized = sanitizeObject(tx) as Record<string, unknown>;
     sanitized.accountName = accountMap[tx['account'] as string] ?? '';
     sanitized.payeeName = payeeMap[tx['payee'] as string] ?? '';
+    sanitized.cleared = Boolean(tx['cleared']);
     return sanitized as unknown as Transaction;
   });
 }
