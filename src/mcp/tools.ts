@@ -5,6 +5,7 @@ import { withActualRead, withActualWrite } from '../actual/client';
 import {
   getUncategorizedTransactions,
   getTransactions,
+  getAccounts,
   getBudgetStatus,
   getCategories,
   getScheduledTransactions,
@@ -40,7 +41,7 @@ export function registerBudgetTools(server: McpServer, deps: McpDeps): void {
   server.registerTool(
     'query_transactions',
     {
-      description: 'Query transactions with optional filters. Amounts are in cents. Dates are YYYY-MM-DD.',
+      description: 'Query transactions with optional filters. Amounts are in cents. Dates are YYYY-MM-DD. Pass cleared=false to list only uncleared transactions.',
       inputSchema: {
         startDate: z.string().optional(),
         endDate: z.string().optional(),
@@ -48,6 +49,7 @@ export function registerBudgetTools(server: McpServer, deps: McpDeps): void {
         categoryId: z.string().optional(),
         amountMin: z.number().optional(),
         amountMax: z.number().optional(),
+        cleared: z.boolean().optional(),
       },
     },
     async (args) => {
@@ -77,6 +79,18 @@ export function registerBudgetTools(server: McpServer, deps: McpDeps): void {
     async () => {
       const categories = await withActualRead(getCategories);
       return jsonContent(categories);
+    }
+  );
+
+  server.registerTool(
+    'get_accounts',
+    {
+      description: 'List all accounts with their current balances. Amounts in cents. Includes closed and off-budget accounts (flagged).',
+      inputSchema: {},
+    },
+    async () => {
+      const accounts = await withActualRead(getAccounts);
+      return jsonContent(accounts);
     }
   );
 
