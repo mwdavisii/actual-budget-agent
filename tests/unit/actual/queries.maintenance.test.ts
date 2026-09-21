@@ -623,6 +623,10 @@ describe('setCategoryForTransaction', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('passes UUID directly to updateTransaction', async () => {
+    vi.mocked(actualApi.getCategoryGroups).mockResolvedValue([
+      { categories: [{ id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', name: 'Existing' }] },
+    ] as any);
+
     await setCategoryForTransaction('tx1', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890');
     expect(actualApi.updateTransaction).toHaveBeenCalledWith('tx1', { category: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' });
   });
