@@ -35,3 +35,14 @@ _Auto-scaffolded by /start-work. Append new entries below - never overwrite._
 - **`contains` semantics:** native `contains` compiles to `$like %value%` (case-insensitive via `likePatternToRegex`); the evaluator mirrors with a lowercase `includes`.
 - **No `./queries` import:** `rules.ts` fetches rows via `actualApi.runQuery(actualApi.q('transactions')...)` directly, keeping it independent of todo 2 (queries.ts) so it compiles in Wave 2. `grep` confirms zero `queries` references in the file.
 - **SIZE_OK exception:** `rules.ts` is ~440 pure LOC — over the 250 ceiling — but the plan mandates a single file (todo 7 imports all six exports from `src/actual/rules.ts`), and the module is one indivisible responsibility (the rules engine: types + validation + humanize + CRUD + evaluator). Splitting would break the plan's dependency contract.
+
+## 2026-09-21 — Wave 3: `src/actual/analysis.ts`
+
+- **`getAccounts()` from `queries.ts` is the validation gate:** `getUnreconciled` resolves and validates the account through `getAccounts()` so the error message uses human-readable account names and the same suggestion ranking as naming helpers.
+- **`last_reconciled` lives only on the raw account entity:** `getAccounts()` enriches balances but drops `last_reconciled`; fetch it from a second `actualApi.getAccounts()` call (or an AQL accounts query) after validation.
+- **Scalar `calculate` returns `{ data: scalar }`:** `actualApi.runQuery(query.calculate({ $sum: '$amount' }))` resolves to a scalar in `.data`, not an array. Read it as `Number(result.data ?? 0)`.
+- **Running balance is client-side:** AQL `orderBy` only reliably supports a single field in this codebase, so sort uncleared rows by `date` then `id` in memory and accumulate `runningBalance`.
+- **Duplicate-payee normalization:** lowercase, strip digits and non-letters (keep spaces), collapse whitespace. "Starbucks #123" and "Starbucks-456!" both normalize to "starbucks".
+- **Transfer payees must be excluded before grouping:** any payee with `transfer_acct != null` is a transfer target and must not appear in merge/suggestion lists.
+- **Per-payee stats via grouped AQL:** `q('transactions').filter({ payee: { $oneof: ids } }).groupBy('payee').select(['payee', { count: { $count: '$id' }, minDate: { $min: '$date' }, maxDate: { $max: '$date' } }])` gives count + date range in one query.
+- **Canonical duplicate = highest count:** within a normalized group, sort by count descending then name ascending; the first member is the suggested canonical, remaining members are duplicates.
