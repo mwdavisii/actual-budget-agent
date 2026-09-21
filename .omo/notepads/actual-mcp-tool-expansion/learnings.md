@@ -15,6 +15,15 @@ _Auto-scaffolded by /start-work. Append new entries below - never overwrite._
 - **API shape leniency:** `getCategoryGroups()` returns groups whose `categories` array is optional in the published types, so resolution helpers should fall back to an empty array (`g.categories ?? []`).
 - **Suggestion ranking:** substring match (candidate contains input) > prefix match (candidate starts with input) > Levenshtein distance, all computed on lowercase strings; exact case-insensitive matches are excluded from suggestions.
 
+## 2026-09-21 — Wave 2: `src/actual/queries.ts` transaction extensions
+
+- **Default `getTransactions` output is frozen at 10 keys:** `id`, `date`, `amount`, `payee`, `payeeName`, `category`, `notes`, `account`, `accountName`, `cleared`. `categoryName` and the other new `Transaction` optional fields are only emitted when the caller requests them via `fields` (or `select('*')` for `getTransactionById`).
+- **Lazy category map:** `getTransactions` only calls `getCategoryGroups()` when `summary: 'category'` or `fields` includes `categoryName`; this avoids forcing `getCategoryGroups` into every existing unit-test mock.
+- **Summary mode uses three queries:** a scalar `calculate({ $sum: '$amount' })` for `totalMatching`, a `groupBy` + `$count` query for per-group counts, and a detail query for `date`/`amount` to compute `firstDate`, `lastDate`, and `totalAmount` client-side.
+- **Actual LIKE wildcards:** only `%` and `?` are wildcards; `_` is literal. `notesContains` escapes `[\\%?]` with a backslash before wrapping in `%...%`.
+- **`getTransactionById`** fetches with `filter({ id }).select('*').options({ splits: 'grouped' })` and enriches `payeeName`, `accountName`, and `categoryName`.
+- **`getPayeesWithCounts`** runs a grouped `transactions` query over all payee ids and returns each payee with `txCount` plus an `isTransfer` flag derived from `transfer_acct != null`.
+
 ## 2026-09-21 — Wave 2: `src/actual/rules.ts`
 
 - **Native rule entity vs input shape diverge:** `getRules()` returns `RuleEntity` whose `actions` have `op: string` (they can be `set-split-amount`, `link-schedule`, `delete-transaction`, etc.), while the gateway's `RuleInput` narrows `op` to `'set' | 'prepend-notes' | 'append-notes'`. The evaluator must type its action loop against the broad `{ op: string; field?: string; value: unknown }` shape, not the narrow input type, or `tsc` rejects the `applyRule` call.
