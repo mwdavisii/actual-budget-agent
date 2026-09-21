@@ -63,3 +63,10 @@ _Auto-scaffolded by /start-work. Append new entries below - never overwrite._
 - **Dry-run defaults differ by risk:** `merge_payees` schema defaults `dryRun: true` (deletes source payees); `apply_category_bulk` defaults `dryRun: false` (cheap, idempotent, reversible on an explicit id list).
 - **Error mapping is a single seam:** messages matching `/not found/i` (category/payee/transaction not found, including the embedded `did you mean` suggestions) are returned verbatim via `errorContent`; all other failures are wrapped as `Actual Budget write failed: ${msg}`.
 - **`update_transaction` fields stay non-strict:** the `fields` object intentionally omits `.strict()` so unknown keys reach `updateTransactionFields` and its `Updating X is not supported` directive surfaces to the caller.
+
+## 2026-09-21 — Wave 5: `src/mcp/tools/analysis.ts`
+
+- **Read tools mirror write-tool structure:** `registerAnalysisTools` uses the same `McpServer` + `InMemoryTransport` harness as `writes.ts`/`rules.ts`, but mocks only `withActualRead` (no write wrapper) and the analysis data modules.
+- **Null read = explicit not-found error:** `getTransactionById` returns `null` for an unknown id; the tool handler converts that to `errorContent(\`Transaction ${txId} not found\`)` rather than letting it fall through to the generic read-failed wrapper.
+- **Read error mapping is symmetric with writes:** `/not found/i` messages pass through verbatim (account-not-found suggestions from `getUnreconciled` reach the caller); everything else becomes `Actual Budget read failed: ${msg}`.
+- **No-arg tool pattern:** `find_duplicate_payees` uses `inputSchema: {}` and an argument-less handler, matching `list_uncategorized_transactions` and `list_payees`.
