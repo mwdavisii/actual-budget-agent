@@ -79,3 +79,21 @@ _Auto-scaffolded by /start-work. Append new entries below - never overwrite._
 - **Null read = explicit not-found error:** `getTransactionById` returns `null` for an unknown id; the tool handler converts that to `errorContent(\`Transaction ${txId} not found\`)` rather than letting it fall through to the generic read-failed wrapper.
 - **Read error mapping is symmetric with writes:** `/not found/i` messages pass through verbatim (account-not-found suggestions from `getUnreconciled` reach the caller); everything else becomes `Actual Budget read failed: ${msg}`.
 - **No-arg tool pattern:** `find_duplicate_payees` uses `inputSchema: {}` and an argument-less handler, matching `list_uncategorized_transactions` and `list_payees`.
+
+## 2026-09-21 — Wave 6: `src/mcp/tools.ts` aggregator upgrade
+
+- **Required-but-nullable zod schema:** `category: z.string().nullable()` keeps the key required (an absent `category` is a client-side validation error) while allowing an explicit `null` value to clear the category. The SDK-converted JSON schema advertises null via `type: ['string', 'null']`.
+- **Branch on value, never truthiness:** the `apply_category` handler passes `args.category` to `applyCategory` verbatim; `null` clears, `''` triggers the naming-layer error `Category cannot be empty — pass null to clear a category`, and a name sets the category. No `if (args.category)` shortcut is used.
+- **Read-back response shape:** `apply_category` now returns `{ success: true, changed: result.changed, tx: result.tx }` so the caller receives the post-state including `category`, `categoryName`, `payeeName`, and `transferId`.
+- **Unified error seam:** `/not found|cannot be empty|not supported/i` messages pass through verbatim (suggestions are already embedded by naming.ts); all other failures are wrapped as `Actual Budget write failed: ${msg}`.
+- **Aggregator wiring order:** `registerWriteTools`, `registerRulesTools`, `registerAnalysisTools` are called at the end of `registerBudgetTools`; combined with the 9 existing tools this yields exactly 23 registered tools.
+- **Mock both old and new imports in tests:** `tools.test.ts` must keep the `src/db/targets` mock for `get_targets`/`get_underfunded` while adding a `src/actual/mutations` mock for `applyCategory`; removing the targets mock causes `db.prepare is not a function` errors.
+
+## 2026-09-21 — Wave 6: `src/http/routes/transactions.ts` REST passthrough
+
+- **Lenient guards mirror existing style:** the route keeps the same `typeof` / `Array.isArray` / set-membership pattern used for `cleared`, so garbage-typed body params are treated as absent rather than rejected with 400.
+- **`orderBy` requires both `field` and `direction` validation:** a plain object is only forwarded when `field` is one of `date`/`amount`/`id` and `direction` is one of `asc`/`desc`; partial or invalid objects are dropped.
+- **`fields` is filtered to strings:** `Array.isArray` bodies have non-string elements removed, so the downstream `getTransactions` always receives `string[] | undefined`.
+- **`summary` is narrowed to the allowed union:** any value other than `'payee'` or `'category'` is treated as absent, matching the `getTransactions` parameter contract.
+- **Integration tests assert passthrough, not query behavior:** the gateway tests mock `getTransactions` and verify the route forwards (or drops) params; the Actual query semantics are covered by unit tests in `tests/unit/actual/queries.transactions.test.ts`.
+- **README updates stay additive:** the route table row is extended in place and a new "MCP tools" section is appended; no existing prose is reformatted.

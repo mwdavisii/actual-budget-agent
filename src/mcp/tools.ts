@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import { withActualRead, withActualWrite } from '../actual/client';
+import { applyCategory } from '../actual/mutations';
 import {
   getUncategorizedTransactions,
   getTransactions,
@@ -12,6 +13,9 @@ import {
   setCategoryForTransaction,
 } from '../actual/queries';
 import { getTargetsWithLive, getUnderfundedCategories } from '../db/targets';
+import { registerWriteTools } from './tools/writes';
+import { registerRulesTools } from './tools/rules';
+import { registerAnalysisTools } from './tools/analysis';
 
 export interface McpDeps {
   db: Database.Database;
@@ -41,15 +45,28 @@ export function registerBudgetTools(server: McpServer, deps: McpDeps): void {
   server.registerTool(
     'query_transactions',
     {
-      description: 'Query transactions with optional filters. Amounts are in cents. Dates are YYYY-MM-DD. Pass cleared=false to list only uncleared transactions.',
+      description:
+        'Query transactions with optional filters. Amounts are in cents. Dates are YYYY-MM-DD. ' +
+        'Filter by payee id (payeeId), payee name substring (payeeContains), or notes substring (notesContains). ' +
+        'Use limit/offset/orderBy for pagination. Request specific output fields via fields[]. ' +
+        'Pass summary=payee or summary=category for grouped counts instead of rows. ' +
+        'Pass cleared=false to list only uncleared transactions.',
       inputSchema: {
         startDate: z.string().optional(),
         endDate: z.string().optional(),
         accountId: z.string().optional(),
         categoryId: z.string().optional(),
+        payeeId: z.string().optional(),
+        payeeContains: z.string().optional(),
+        notesContains: z.string().optional(),
         amountMin: z.number().optional(),
         amountMax: z.number().optional(),
         cleared: z.boolean().optional(),
+        limit: z.number().int().optional(),
+        offset: z.number().int().optional(),
+        orderBy: z.object({ field: z.enum(['date', 'amount', 'id']), direction: z.enum(['asc', 'desc']) }).optional(),
+        fields: z.array(z.string()).optional(),
+        summary: z.enum(['payee', 'category']).optional(),
       },
     },
     async (args) => {
@@ -133,26 +150,29 @@ export function registerBudgetTools(server: McpServer, deps: McpDeps): void {
   server.registerTool(
     'apply_category',
     {
-      description: 'Assign a category to a transaction by id. Use a category name from list_categories. Writes to Actual Budget.',
+      description:
+        'Assign a category to a transaction by id, or pass category=null to clear it. ' +
+        'Use a category name from list_categories. Writes to Actual Budget.',
       inputSchema: {
         txId: z.string(),
-        category: z.string(),
+        category: z.string().nullable(),
       },
     },
     async (args) => {
       try {
-        await withActualWrite(() => setCategoryForTransaction(args.txId, args.category));
+        const result = await withActualWrite(() => applyCategory(args.txId, args.category));
+        return jsonContent({ success: true, changed: result.changed, tx: result.tx });
       } catch (e) {
-        // Same not-found definition as the REST apply-category route. Give the
-        // agent an actionable hint for the correctable case; mark the rest as a
-        // write failure it should not blindly retry with the same inputs.
         const msg = e instanceof Error ? e.message : String(e);
-        if (/category .* not found/i.test(msg)) {
-          return errorContent(`${msg} — call list_categories to see valid category names.`);
+        if (/not found|cannot be empty|not supported/i.test(msg)) {
+          return errorContent(msg);
         }
         return errorContent(`Actual Budget write failed: ${msg}`);
       }
-      return jsonContent({ success: true, txId: args.txId, category: args.category });
     }
   );
+
+  registerWriteTools(server, deps);
+  registerRulesTools(server, deps);
+  registerAnalysisTools(server, deps);
 }
