@@ -55,3 +55,11 @@ _Auto-scaffolded by /start-work. Append new entries below - never overwrite._
 - **Bulk error entries use `String(err)`:** this produces `"Error: <message>"` for thrown Error objects, which is the standard shape for per-id bulk error entries.
 - **Dry-run bulk category writes perform zero mutations:** only `getTransactionById` reads are issued to build the before/after projection; `updateTransaction` and `batchBudgetUpdates` are never called.
 - **`WriteResult` type mirrors `getTransactionById` enrichment:** `NonNullable<Awaited<ReturnType<typeof getTransactionById>>>` captures the full enriched `Transaction` shape without duplicating the interface.
+
+## 2026-09-21 — Wave 4: `src/mcp/tools/shared.ts` + `src/mcp/tools/writes.ts`
+
+- **`shared.ts` breaks the future circular import:** `jsonContent`/`errorContent` live in their own module so `writes.ts`, `rules.ts`, and `analysis.ts` can import them without importing from `src/mcp/tools.ts`, where the aggregator in todo 9 will wire the modules together.
+- **Per-module MCP tests build a fresh `McpServer`:** `tools.writes.test.ts` constructs `new McpServer(...)` and calls `registerWriteTools` directly, mirroring the `InMemoryTransport` + `textOf` harness from `tools.test.ts` but isolating the module under test.
+- **Dry-run defaults differ by risk:** `merge_payees` schema defaults `dryRun: true` (deletes source payees); `apply_category_bulk` defaults `dryRun: false` (cheap, idempotent, reversible on an explicit id list).
+- **Error mapping is a single seam:** messages matching `/not found/i` (category/payee/transaction not found, including the embedded `did you mean` suggestions) are returned verbatim via `errorContent`; all other failures are wrapped as `Actual Budget write failed: ${msg}`.
+- **`update_transaction` fields stay non-strict:** the `fields` object intentionally omits `.strict()` so unknown keys reach `updateTransactionFields` and its `Updating X is not supported` directive surfaces to the caller.
