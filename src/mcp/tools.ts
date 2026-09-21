@@ -16,17 +16,10 @@ import { getTargetsWithLive, getUnderfundedCategories } from '../db/targets';
 import { registerWriteTools } from './tools/writes';
 import { registerRulesTools } from './tools/rules';
 import { registerAnalysisTools } from './tools/analysis';
+import { jsonContent, errorContent } from './tools/shared';
 
 export interface McpDeps {
   db: Database.Database;
-}
-
-function jsonContent(value: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(value) }] };
-}
-
-function errorContent(message: string) {
-  return { content: [{ type: 'text' as const, text: message }], isError: true };
 }
 
 export function registerBudgetTools(server: McpServer, deps: McpDeps): void {
