@@ -3,7 +3,7 @@ import {
   getTransactions,
   getTransactionById,
   getPayeesWithCounts,
-} from '../../../src/actual/queries';
+} from '../../../src/actual/transaction-queries';
 import { actualApi } from '../../../src/actual/client';
 
 const chain = {
