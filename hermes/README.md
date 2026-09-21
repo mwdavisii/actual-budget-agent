@@ -20,7 +20,7 @@ alias if you prefer.
 2. Register the gateway MCP server on the profile:
    - `hermes -p pennyworth mcp add budget-gateway --transport http --url http://gateway:3000/mcp` (replace `gateway:3000` with your gateway host:port)
    - Provide the gateway bearer token when prompted. If your Hermes version cannot send a static Authorization header to an HTTP MCP server, run the gateway MCP on the trusted homelab network and restrict `/mcp` at the network layer instead.
-    - During the probe, enable exactly these 9 tools: `list_uncategorized_transactions`, `query_transactions`, `get_budget_status`, `list_categories`, `get_schedules`, `get_targets`, `get_underfunded`, `apply_category`, `get_accounts`.
+    - During the probe, enable exactly these 23 tools: `list_uncategorized_transactions`, `query_transactions`, `get_budget_status`, `list_categories`, `get_schedules`, `get_targets`, `get_underfunded`, `apply_category`, `get_accounts`, `apply_category_bulk`, `set_payee`, `list_payees`, `merge_payees`, `get_transaction`, `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `explain_transaction`, `run_rules`, `get_unreconciled`, `find_duplicate_payees`, `update_transaction`.
 3. Pair your Telegram account to the `pennyworth` profile (see Hermes messaging docs) and confirm unknown DMs are ignored.
 4. Smoke test: DM the bot "categorize my latest transactions", confirm categories land in Actual, then correct one and confirm it re-applies and is remembered.
 

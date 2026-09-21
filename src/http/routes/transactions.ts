@@ -14,6 +14,30 @@ export function createTransactionsRouter(_deps: AppDeps): Router {
 
   router.post('/query', async (req, res) => {
     const f = (req.body ?? {}) as Record<string, unknown>;
+
+    const orderByRaw = f['orderBy'];
+    const orderByObj =
+      orderByRaw && typeof orderByRaw === 'object' && !Array.isArray(orderByRaw)
+        ? (orderByRaw as Record<string, unknown>)
+        : undefined;
+    const orderBy =
+      orderByObj &&
+      ['date', 'amount', 'id'].includes(String(orderByObj['field'])) &&
+      ['asc', 'desc'].includes(String(orderByObj['direction']))
+        ? {
+            field: String(orderByObj['field']) as 'date' | 'amount' | 'id',
+            direction: String(orderByObj['direction']) as 'asc' | 'desc',
+          }
+        : undefined;
+
+    const summaryRaw = f['summary'];
+    const summary = summaryRaw === 'payee' || summaryRaw === 'category' ? summaryRaw : undefined;
+
+    const fieldsRaw = f['fields'];
+    const fields = Array.isArray(fieldsRaw)
+      ? fieldsRaw.filter((item): item is string => typeof item === 'string')
+      : undefined;
+
     const txs = await withActualRead(() =>
       getTransactions({
         startDate: f['startDate'] as string | undefined,
@@ -23,6 +47,14 @@ export function createTransactionsRouter(_deps: AppDeps): Router {
         amountMin: f['amountMin'] as number | undefined,
         amountMax: f['amountMax'] as number | undefined,
         cleared: typeof f['cleared'] === 'boolean' ? f['cleared'] : undefined,
+        payeeId: f['payeeId'] as string | undefined,
+        payeeContains: f['payeeContains'] as string | undefined,
+        notesContains: f['notesContains'] as string | undefined,
+        limit: typeof f['limit'] === 'number' ? f['limit'] : undefined,
+        offset: typeof f['offset'] === 'number' ? f['offset'] : undefined,
+        orderBy,
+        fields,
+        summary,
       })
     ).catch(actualDown);
     res.json(txs);
