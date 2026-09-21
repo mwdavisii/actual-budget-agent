@@ -351,7 +351,7 @@ async function fetchTx(txId: string): Promise<TxRow> {
   return rows[0];
 }
 
-async function buildRefs(): Promise<RuleRefs> {
+export async function buildRefs(): Promise<RuleRefs> {
   const payees = (await actualApi.getPayees()) as Array<{ id: string; name?: string }>;
   const payeeMap = Object.fromEntries(payees.map((p) => [p.id, p.name ?? '']));
   const groups = (await actualApi.getCategoryGroups()) as Array<{
