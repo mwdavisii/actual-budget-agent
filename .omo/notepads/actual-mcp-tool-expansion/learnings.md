@@ -64,6 +64,15 @@ _Auto-scaffolded by /start-work. Append new entries below - never overwrite._
 - **Error mapping is a single seam:** messages matching `/not found/i` (category/payee/transaction not found, including the embedded `did you mean` suggestions) are returned verbatim via `errorContent`; all other failures are wrapped as `Actual Budget write failed: ${msg}`.
 - **`update_transaction` fields stay non-strict:** the `fields` object intentionally omits `.strict()` so unknown keys reach `updateTransactionFields` and its `Updating X is not supported` directive surfaces to the caller.
 
+## 2026-09-21 — Wave 5: `src/mcp/tools/rules.ts`
+
+- **`buildRefs` must be exported from `src/actual/rules.ts`:** `list_rules` and the create/update responses need payee/category name maps to humanize rules, so the previously-internal `buildRefs` helper is now part of the rules module's public surface.
+- **Rule tool responses carry both raw and humanized data:** `list_rules` maps each `RuleEntity` to `{ ...rule, text: humanizeRule(rule, refs) }`; `create_rule`/`update_rule` return `{ success: true, ruleId, text: humanizeRule({ id, ...input }, refs) }`.
+- **`explain_transaction` stays read-only:** it is wrapped in `withActualRead`, while the other history-affecting tools (`create_rule`, `update_rule`, `delete_rule`, `run_rules`) use `withActualWrite`.
+- **`run_rules` defaults to `dryRun: true`:** the schema uses `z.boolean().default(true)` and the description explicitly instructs callers to preview with `dryRun=true` before re-invoking with `dryRun=false`; the `scope` object is `.strict()` and requires one of `txIds`, `accountId`, `categoryId`, or `all:true`.
+- **Single-id deletion only:** `delete_rule` accepts exactly one `ruleId`; there is no batch form, matching the underlying native `deleteRule` signature.
+- **Error mapping mirrors writes tools:** messages matching `/not found/i` (including embedded "did you mean" suggestions from naming helpers) are returned verbatim via `errorContent`; all other failures are wrapped as `Actual Budget write failed: ${msg}`.
+
 ## 2026-09-21 — Wave 5: `src/mcp/tools/analysis.ts`
 
 - **Read tools mirror write-tool structure:** `registerAnalysisTools` uses the same `McpServer` + `InMemoryTransport` harness as `writes.ts`/`rules.ts`, but mocks only `withActualRead` (no write wrapper) and the analysis data modules.
