@@ -46,3 +46,12 @@ _Auto-scaffolded by /start-work. Append new entries below - never overwrite._
 - **Transfer payees must be excluded before grouping:** any payee with `transfer_acct != null` is a transfer target and must not appear in merge/suggestion lists.
 - **Per-payee stats via grouped AQL:** `q('transactions').filter({ payee: { $oneof: ids } }).groupBy('payee').select(['payee', { count: { $count: '$id' }, minDate: { $min: '$date' }, maxDate: { $max: '$date' } }])` gives count + date range in one query.
 - **Canonical duplicate = highest count:** within a normalized group, sort by count descending then name ascending; the first member is the suggested canonical, remaining members are duplicates.
+
+## 2026-09-21 — Wave 3: `src/actual/mutations.ts`
+
+- **`updateTransaction` return value is unreliable for read-back:** the native method returns an array that is often empty, so every mutation helper re-fetches the row via `getTransactionById` to return enriched post-state (`categoryName`, `payeeName`, `transferId`).
+- **`batchBudgetUpdates` only batches sync messages:** individual `updateTransaction` calls inside the callback remain separate DB operations, so `applyCategoryBulk` is genuinely non-atomic — per-row `try/catch` is required, and earlier rows stay applied when a later row fails.
+- **`mergePayees` silently skips transfer payees in Actual:** the gateway must pre-reject transfer payees as both target and source because the underlying API would silently ignore them, leaving the caller with a misleading success.
+- **Bulk error entries use `String(err)`:** this produces `"Error: <message>"` for thrown Error objects, which is the standard shape for per-id bulk error entries.
+- **Dry-run bulk category writes perform zero mutations:** only `getTransactionById` reads are issued to build the before/after projection; `updateTransaction` and `batchBudgetUpdates` are never called.
+- **`WriteResult` type mirrors `getTransactionById` enrichment:** `NonNullable<Awaited<ReturnType<typeof getTransactionById>>>` captures the full enriched `Transaction` shape without duplicating the interface.
