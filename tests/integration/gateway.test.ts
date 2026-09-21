@@ -85,6 +85,41 @@ describe('transactions routes', () => {
     expect(getTransactions).toHaveBeenCalledWith(expect.not.objectContaining({ cleared: expect.anything() }));
   });
 
+  it('POST /tx/query forwards payeeContains to getTransactions', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).post('/tx/query').set(AUTH).send({ payeeContains: 'amex' });
+    expect(res.status).toBe(200);
+    expect(getTransactions).toHaveBeenCalledWith(expect.objectContaining({ payeeContains: 'amex' }));
+  });
+
+  it('POST /tx/query forwards limit and fields to getTransactions', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).post('/tx/query').set(AUTH).send({ limit: 200, fields: ['date', 'amount'] });
+    expect(res.status).toBe(200);
+    expect(getTransactions).toHaveBeenCalledWith(expect.objectContaining({ limit: 200, fields: ['date', 'amount'] }));
+  });
+
+  it('POST /tx/query forwards summary to getTransactions', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).post('/tx/query').set(AUTH).send({ summary: 'payee' });
+    expect(res.status).toBe(200);
+    expect(getTransactions).toHaveBeenCalledWith(expect.objectContaining({ summary: 'payee' }));
+  });
+
+  it('POST /tx/query drops garbage-typed params', async () => {
+    const { app } = createApp(makeDeps());
+    const res = await request(app).post('/tx/query').set(AUTH).send({ limit: '200', offset: 'not-a-number', orderBy: 'date', summary: 'nope' });
+    expect(res.status).toBe(200);
+    expect(getTransactions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        limit: undefined,
+        offset: undefined,
+        orderBy: undefined,
+        summary: undefined,
+      })
+    );
+  });
+
   it('POST /tx/:id/category with a valid body succeeds', async () => {
     const { app } = createApp(makeDeps());
     const res = await request(app).post('/tx/t9/category').set(AUTH).send({ category: 'Groceries' });

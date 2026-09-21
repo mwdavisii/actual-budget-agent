@@ -30,7 +30,7 @@ All routes except the health probes require `Authorization: Bearer <GATEWAY_TOKE
 | `GET` | `/healthz` | Liveness probe — always 200 |
 | `GET` | `/readyz` | Readiness probe — 200 once the HTTP server is listening (the Actual connection warms lazily on the first data request) |
 | `GET` | `/tx/uncategorized` | List uncategorized transactions |
-| `POST` | `/tx/query` | Query transactions with filters (optionally filter by `cleared` boolean) |
+| `POST` | `/tx/query` | Query transactions with filters (`startDate`, `endDate`, `accountId`, `categoryId`, `amountMin`, `amountMax`, `cleared`, `payeeId`, `payeeContains`, `notesContains`, `limit`, `offset`, `orderBy`, `fields`, `summary`) |
 | `POST` | `/tx/:id/category` | Set the category on a transaction |
 | `GET` | `/budget/status` | Current month budget status |
 | `GET` | `/schedules` | Upcoming scheduled transactions |
@@ -42,6 +42,13 @@ All routes except the health probes require `Authorization: Bearer <GATEWAY_TOKE
 | `GET` | `/targets/underfunded` | Categories where current budget is below target |
 | `GET` | `/targets/export` | Export all targets as JSON |
 | `POST` | `/targets/import` | Import targets from a JSON payload (upserts) |
+
+## MCP tools
+
+The gateway exposes an MCP server at `/mcp` with 23 tools:
+
+- `list_uncategorized_transactions`, `query_transactions`, `get_budget_status`, `list_categories`, `get_accounts`, `get_schedules`, `get_targets`, `get_underfunded`, `apply_category`
+- `apply_category_bulk`, `set_payee`, `list_payees`, `merge_payees`, `get_transaction`, `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `explain_transaction`, `run_rules`, `get_unreconciled`, `find_duplicate_payees`, `update_transaction`
 
 ## Example request
 
