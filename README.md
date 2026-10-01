@@ -45,10 +45,10 @@ All routes except the health probes require `Authorization: Bearer <GATEWAY_TOKE
 
 ## MCP tools
 
-The gateway exposes an MCP server at `/mcp` with 23 tools:
+The gateway exposes an MCP server at `/mcp` with 24 tools:
 
 - `list_uncategorized_transactions`, `query_transactions`, `get_budget_status`, `list_categories`, `get_accounts`, `get_schedules`, `get_targets`, `get_underfunded`, `apply_category`
-- `apply_category_bulk`, `set_payee`, `list_payees`, `merge_payees`, `get_transaction`, `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `explain_transaction`, `run_rules`, `get_unreconciled`, `find_duplicate_payees`, `update_transaction`
+- `apply_category_bulk`, `set_payee`, `list_payees`, `merge_payees`, `get_transaction`, `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `explain_transaction`, `run_rules`, `get_unreconciled`, `find_duplicate_payees`, `update_transaction`, `delete_transaction`
 
 ## Example request
 
