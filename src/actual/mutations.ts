@@ -170,6 +170,16 @@ export async function updateTransactionFields(
   return { txId, changed, tx };
 }
 
+export async function deleteTransaction(txId: string): Promise<{ txId: string; deleted: boolean }> {
+  const current = await getTransactionById(txId);
+  if (!current) {
+    throw new Error(`Transaction ${txId} not found`);
+  }
+
+  await actualApi.deleteTransaction(txId);
+  return { txId, deleted: true };
+}
+
 export async function applyCategoryBulk(
   txIds: string[],
   category: string | null,

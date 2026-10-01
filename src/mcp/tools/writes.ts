@@ -6,6 +6,7 @@ import {
   setPayee,
   mergePayees,
   updateTransactionFields,
+  deleteTransaction,
 } from '../../actual/mutations';
 import { getPayeesWithCounts } from '../../actual/queries';
 import type { McpDeps } from '../tools';
@@ -125,6 +126,25 @@ export function registerWriteTools(server: McpServer, _deps: McpDeps): void {
           updateTransactionFields(args.txId, args.fields)
         );
         return jsonContent({ success: true, changed, tx });
+      } catch (e) {
+        return mapWriteError(e);
+      }
+    }
+  );
+
+  server.registerTool(
+    'delete_transaction',
+    {
+      description:
+        'Delete a transaction by id. This action is permanent. Writes to Actual Budget.',
+      inputSchema: {
+        txId: z.string(),
+      },
+    },
+    async (args) => {
+      try {
+        const result = await withActualWrite(() => deleteTransaction(args.txId));
+        return jsonContent({ success: true, ...result });
       } catch (e) {
         return mapWriteError(e);
       }
