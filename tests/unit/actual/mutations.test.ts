@@ -5,6 +5,7 @@ import {
   mergePayees,
   updateTransactionFields,
   applyCategoryBulk,
+  deleteTransaction,
 } from '../../../src/actual/mutations';
 import { getTransactionById } from '../../../src/actual/queries';
 import { resolveCategory, resolvePayee } from '../../../src/actual/naming';
@@ -13,6 +14,7 @@ import { actualApi } from '../../../src/actual/client';
 vi.mock('../../../src/actual/client', () => ({
   actualApi: {
     updateTransaction: vi.fn(),
+    deleteTransaction: vi.fn(),
     mergePayees: vi.fn(),
     runQuery: vi.fn(),
     batchBudgetUpdates: vi.fn((fn: () => Promise<void>) => fn()),
@@ -297,5 +299,27 @@ describe('applyCategoryBulk', () => {
     expect(actualApi.updateTransaction).not.toHaveBeenCalled();
     expect(result.applied).toBe(0);
     expect(result.results[0]).toEqual({ txId: 'tx-1', changed: false, before: 'cat-1', after: 'cat-1' });
+  });
+});
+
+describe('deleteTransaction', () => {
+  it('reports the linked counterpart that Actual also deletes', async () => {
+    vi.mocked(getTransactionById).mockResolvedValue(makeTx({ transfer_id: 'tx-2' }));
+    const res = await deleteTransaction('tx-1');
+    expect(actualApi.deleteTransaction).toHaveBeenCalledWith('tx-1');
+    expect(res).toEqual({ txId: 'tx-1', deleted: true, alsoDeleted: 'tx-2' });
+  });
+
+  it('omits alsoDeleted for a split child, whose counterpart Actual only unlinks', async () => {
+    vi.mocked(getTransactionById).mockResolvedValue(makeTx({ transfer_id: 'tx-2', is_child: true }));
+    const res = await deleteTransaction('tx-1');
+    expect(actualApi.deleteTransaction).toHaveBeenCalledWith('tx-1');
+    expect(res).toEqual({ txId: 'tx-1', deleted: true });
+  });
+
+  it('omits alsoDeleted for a non-transfer transaction', async () => {
+    vi.mocked(getTransactionById).mockResolvedValue(makeTx());
+    const res = await deleteTransaction('tx-1');
+    expect(res).toEqual({ txId: 'tx-1', deleted: true });
   });
 });
