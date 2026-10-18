@@ -14,6 +14,7 @@ vi.mock('../../../src/actual/mutations', () => ({
   setPayee: vi.fn(),
   mergePayees: vi.fn(),
   updateTransactionFields: vi.fn(),
+  deleteTransaction: vi.fn(),
 }));
 
 vi.mock('../../../src/actual/queries', () => ({
@@ -37,11 +38,18 @@ function textOf(result: { content: Array<{ type: string; text?: string }> }): st
 beforeEach(() => vi.clearAllMocks());
 
 describe('MCP write tools', () => {
-  it('lists all five write tools', async () => {
+  it('lists all six write tools', async () => {
     const client = await connectWriteToolsClient();
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
-    for (const n of ['apply_category_bulk', 'set_payee', 'list_payees', 'merge_payees', 'update_transaction']) {
+    for (const n of [
+      'apply_category_bulk',
+      'set_payee',
+      'list_payees',
+      'merge_payees',
+      'update_transaction',
+      'delete_transaction',
+    ]) {
       expect(names).toContain(n);
     }
   });
@@ -109,5 +117,30 @@ describe('MCP write tools', () => {
     });
     expect(JSON.parse(textOf(res as never))).toEqual(mocked);
     expect(mergePayees).toHaveBeenCalledWith('Target', ['Source'], true);
+  });
+
+  it('delete_transaction returns success when deletion succeeds', async () => {
+    const { deleteTransaction } = await import('../../../src/actual/mutations');
+    (deleteTransaction as unknown as { mockResolvedValueOnce: (v: unknown) => void }).mockResolvedValueOnce({
+      txId: 'tx-1',
+      deleted: true,
+    });
+
+    const client = await connectWriteToolsClient();
+    const res = await client.callTool({ name: 'delete_transaction', arguments: { txId: 'tx-1' } });
+    expect(JSON.parse(textOf(res as never))).toEqual({ success: true, txId: 'tx-1', deleted: true });
+    expect(deleteTransaction).toHaveBeenCalledWith('tx-1');
+  });
+
+  it('delete_transaction returns a tool error when transaction is not found', async () => {
+    const { deleteTransaction } = await import('../../../src/actual/mutations');
+    (deleteTransaction as unknown as { mockRejectedValueOnce: (e: Error) => void }).mockRejectedValueOnce(
+      new Error('Transaction tx-missing not found')
+    );
+
+    const client = await connectWriteToolsClient();
+    const res = await client.callTool({ name: 'delete_transaction', arguments: { txId: 'tx-missing' } });
+    expect((res as { isError?: boolean }).isError).toBe(true);
+    expect(textOf(res as never)).toContain('Transaction tx-missing not found');
   });
 });

@@ -16,6 +16,7 @@ import { getTargetsWithLive, getUnderfundedCategories } from '../db/targets';
 import { registerWriteTools } from './tools/writes';
 import { registerRulesTools } from './tools/rules';
 import { registerAnalysisTools } from './tools/analysis';
+import { registerTransferTools } from './tools/transfers';
 import { jsonContent, errorContent } from './tools/shared';
 
 export interface McpDeps {
@@ -168,4 +169,5 @@ export function registerBudgetTools(server: McpServer, deps: McpDeps): void {
   registerWriteTools(server, deps);
   registerRulesTools(server, deps);
   registerAnalysisTools(server, deps);
+  registerTransferTools(server, deps);
 }
