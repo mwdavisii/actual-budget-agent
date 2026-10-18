@@ -55,6 +55,16 @@ describe('MCP transfer tools', () => {
     expect(JSON.parse(textOf(res as never))).toEqual([{ confidence: 'unique' }]);
   });
 
+  it('find_transfer_candidates rejects a malformed sinceDate without querying', async () => {
+    const client = await connect();
+    const res = await client.callTool({
+      name: 'find_transfer_candidates',
+      arguments: { sinceDate: '10/01/2026' },
+    });
+    expect((res as { isError?: boolean }).isError).toBe(true);
+    expect(findTransferCandidates).not.toHaveBeenCalled();
+  });
+
   it('link_transfer defaults to dryRun=true', async () => {
     vi.mocked(linkTransfer).mockResolvedValueOnce({ dryRun: true, linked: false } as never);
     const client = await connect();

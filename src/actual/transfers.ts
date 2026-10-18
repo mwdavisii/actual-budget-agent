@@ -12,6 +12,7 @@ export interface TransferTx {
   payee: string | null;
   payeeName: string;
   cleared: boolean;
+  reconciled: boolean;
   notes: string | null;
 }
 
@@ -89,9 +90,9 @@ export async function findTransferCandidates(opts: {
   const payeeMap = Object.fromEntries(payees.map((p) => [p.id, p.name ?? '']));
   const transferPayeeIds = new Set(payees.filter((p) => p.transfer_acct != null).map((p) => p.id));
 
-  let query = actualApi.q('transactions').filter({ transfer_id: null, is_parent: false });
+  let query = actualApi.q('transactions').filter({ transfer_id: null, is_parent: false, is_child: false });
   if (opts.sinceDate) query = query.filter({ date: { $gte: opts.sinceDate } });
-  query = query.select(['id', 'date', 'amount', 'account', 'payee', 'notes', 'cleared']);
+  query = query.select(['id', 'date', 'amount', 'account', 'payee', 'notes', 'cleared', 'reconciled']);
   const result = await actualApi.runQuery(query);
 
   const rows: TransferTx[] = (result as { data: Record<string, unknown>[] }).data
@@ -105,6 +106,7 @@ export async function findTransferCandidates(opts: {
       payee: r.payee == null ? null : String(r.payee),
       payeeName: sanitize(payeeMap[String(r.payee)] ?? ''),
       cleared: Boolean(r.cleared),
+      reconciled: Boolean(r.reconciled),
       notes: r.notes == null ? null : sanitize(String(r.notes)),
     }));
 
@@ -124,6 +126,7 @@ interface RawTx {
   cleared: boolean;
   transferId: string | null;
   isParent: boolean;
+  isChild: boolean;
   reconciled: boolean;
 }
 
@@ -132,6 +135,8 @@ export interface LinkTransferResult {
   linked: boolean;
   /** True when a re-read confirmed both rows are linked; false for dry-runs or if the write had not become visible in time. */
   verified: boolean;
+  /** Ids of reconciled rows among the two; a real run requires allowReconciled when non-empty. */
+  reconciledRows: string[];
   before: { a: RawTx; b: RawTx };
   after: { a: RawTx; b: RawTx };
 }
@@ -142,7 +147,7 @@ async function getRawTx(id: string): Promise<RawTx | null> {
       .q('transactions')
       .filter({ id })
       .options({ splits: 'all' }) // default 'inline' hides split parents, which we want to reject explicitly
-      .select(['id', 'date', 'amount', 'account', 'payee', 'notes', 'cleared', 'reconciled', 'transfer_id', 'is_parent'])
+      .select(['id', 'date', 'amount', 'account', 'payee', 'notes', 'cleared', 'reconciled', 'transfer_id', 'is_parent', 'is_child'])
   );
   const row = (result as { data: Record<string, unknown>[] }).data[0];
   if (!row) return null;
@@ -156,6 +161,7 @@ async function getRawTx(id: string): Promise<RawTx | null> {
     cleared: Boolean(row.cleared),
     transferId: row.transfer_id == null ? null : String(row.transfer_id),
     isParent: Boolean(row.is_parent),
+    isChild: Boolean(row.is_child),
     reconciled: Boolean(row.reconciled),
   };
 }
@@ -207,11 +213,7 @@ export async function linkTransfer(
   for (const t of [a, b]) {
     if (t.transferId) throw new TransferLinkError(`Transaction ${t.id} is already linked to a transfer`);
     if (t.isParent) throw new TransferLinkError(`Transaction ${t.id} is a split parent and cannot be linked`);
-    if (t.reconciled && !options.allowReconciled) {
-      throw new TransferLinkError(
-        `Transaction ${t.id} is reconciled and linking would change it. Confirm with the user, then retry with allowReconciled:true`
-      );
-    }
+    if (t.isChild) throw new TransferLinkError(`Transaction ${t.id} is a split child and cannot be linked`);
   }
   if (a.account === b.account) {
     throw new TransferLinkError('Transactions are in the same account');
@@ -239,20 +241,38 @@ export async function linkTransfer(
   const projectedA: RawTx = { ...a, payee: payeeOnA, transferId: b.id, cleared, notes };
   const projectedB: RawTx = { ...b, payee: payeeOnB, transferId: a.id, cleared, notes };
 
+  const reconciledRows = [a, b].filter((t) => t.reconciled).map((t) => t.id);
+
   if (dryRun) {
     return {
       dryRun: true,
       linked: false,
       verified: false,
+      reconciledRows,
       before: { a: forOutput(a), b: forOutput(b) },
       after: { a: forOutput(projectedA), b: forOutput(projectedB) },
     };
   }
 
-  await actualApi.batchBudgetUpdates(async () => {
-    await actualApi.updateTransaction(a.id, { payee: payeeOnA, transfer_id: b.id, cleared, notes });
-    await actualApi.updateTransaction(b.id, { payee: payeeOnB, transfer_id: a.id, cleared, notes });
-  });
+  if (reconciledRows.length > 0 && !options.allowReconciled) {
+    throw new TransferLinkError(
+      `Transaction ${reconciledRows[0]} is reconciled and linking would change it. Confirm with the user, then retry with allowReconciled:true`
+    );
+  }
+
+  // No rollback on failure: nulling transfer_id makes Actual delete the counterpart row.
+  try {
+    await actualApi.batchBudgetUpdates(async () => {
+      await actualApi.updateTransaction(a.id, { payee: payeeOnA, transfer_id: b.id, cleared, notes });
+      await actualApi.updateTransaction(b.id, { payee: payeeOnB, transfer_id: a.id, cleared, notes });
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new TransferLinkError(
+      `Linking failed part-way and the two transactions may be partially updated (${msg}). ` +
+        'Inspect both with get_transaction before retrying, and do not delete either one.'
+    );
+  }
 
   const settled = await readLinked(a, b, settle);
   const after = settled ?? { a: projectedA, b: projectedB };
@@ -260,6 +280,7 @@ export async function linkTransfer(
     dryRun: false,
     linked: true,
     verified: settled !== null,
+    reconciledRows,
     before: { a: forOutput(a), b: forOutput(b) },
     after: { a: forOutput(after.a), b: forOutput(after.b) },
   };

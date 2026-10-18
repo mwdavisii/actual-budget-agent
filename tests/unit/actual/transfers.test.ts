@@ -32,6 +32,7 @@ function tx(overrides: Partial<TransferTx> = {}): TransferTx {
     payee: 'p-1',
     payeeName: 'Payment',
     cleared: false,
+    reconciled: false,
     notes: null,
     ...overrides,
   };
@@ -109,6 +110,7 @@ function dbRow(overrides: Record<string, unknown>) {
     payee: 'p-1',
     notes: null,
     cleared: false,
+    reconciled: false,
     ...overrides,
   };
 }
@@ -127,15 +129,24 @@ describe('findTransferCandidates', () => {
     ]);
   });
 
-  it('returns enriched unique pairs and queries only unlinked, non-parent rows', async () => {
+  it('returns enriched unique pairs and queries only unlinked, non-split rows', async () => {
     const chain = mockFindQuery([
       dbRow({ id: 'a', account: 'acc-checking', amount: -5000, payee: 'p-1', notes: 'ACH <b>' }),
-      dbRow({ id: 'b', account: 'acc-card', amount: 5000, date: '2026-10-02', payee: 'p-2', cleared: true }),
+      dbRow({
+        id: 'b',
+        account: 'acc-card',
+        amount: 5000,
+        date: '2026-10-02',
+        payee: 'p-2',
+        cleared: true,
+        reconciled: 1,
+      }),
     ]);
 
     const pairs = await findTransferCandidates({});
 
-    expect(chain.filter).toHaveBeenCalledWith({ transfer_id: null, is_parent: false });
+    expect(chain.filter).toHaveBeenCalledWith({ transfer_id: null, is_parent: false, is_child: false });
+    expect(chain.select).toHaveBeenCalledWith(expect.arrayContaining(['reconciled']));
     expect(pairs).toHaveLength(1);
     expect(pairs[0].confidence).toBe('unique');
     expect(pairs[0].a).toMatchObject({
@@ -143,9 +154,10 @@ describe('findTransferCandidates', () => {
       accountName: 'Checking',
       payeeName: 'Card Payment',
       cleared: false,
+      reconciled: false,
       notes: 'ACH &lt;b&gt;',
     });
-    expect(pairs[0].b).toMatchObject({ id: 'b', accountName: 'Card', cleared: true });
+    expect(pairs[0].b).toMatchObject({ id: 'b', accountName: 'Card', cleared: true, reconciled: true });
   });
 
   it('excludes rows that already use a transfer payee', async () => {
@@ -211,6 +223,7 @@ function rawRow(overrides: Row): Row {
     cleared: true,
     transfer_id: null,
     is_parent: false,
+    is_child: false,
     reconciled: false,
     ...overrides,
   };
@@ -353,14 +366,49 @@ describe('linkTransfer', () => {
     await expectRejected({ ...rowA(), is_parent: true }, rowB(), /split/);
   });
 
-  it('rejects a reconciled row unless allowReconciled is set', async () => {
-    await expectRejected({ ...rowA(), reconciled: true }, rowB(), /reconciled.*allowReconciled/);
+  it('rejects a split child', async () => {
+    await expectRejected(rowA(), { ...rowB(), is_child: true }, /^Transaction tx-b is a split child and cannot be linked$/);
+  });
 
+  it('dry-run reports reconciled rows without throwing or writing', async () => {
+    mockRowsById({ 'tx-a': { ...rowA(), reconciled: true }, 'tx-b': rowB() });
+    const res = await linkTransfer('tx-a', 'tx-b', true);
+    expect(res.dryRun).toBe(true);
+    expect(res.reconciledRows).toEqual(['tx-a']);
+    expect(actualApi.updateTransaction).not.toHaveBeenCalled();
+    expect(actualApi.batchBudgetUpdates).not.toHaveBeenCalled();
+  });
+
+  it('reports an empty reconciledRows when neither row is reconciled', async () => {
+    mockRowsById({ 'tx-a': rowA(), 'tx-b': rowB() });
+    expect((await linkTransfer('tx-a', 'tx-b', true)).reconciledRows).toEqual([]);
+  });
+
+  it('a real run rejects a reconciled row unless allowReconciled is set', async () => {
+    await expectRejected({ ...rowA(), reconciled: true }, rowB(), /reconciled.*allowReconciled/);
+    expect(actualApi.batchBudgetUpdates).not.toHaveBeenCalled();
+  });
+
+  it('a real run links a reconciled row when allowReconciled is set', async () => {
     const rows = { 'tx-a': { ...rowA(), reconciled: true }, 'tx-b': rowB() };
     mockRowsById(rows);
     simulateWrites(rows);
     const res = await linkTransfer('tx-a', 'tx-b', false, { allowReconciled: true, settle: noWait });
     expect(res.linked).toBe(true);
+    expect(res.reconciledRows).toEqual(['tx-a']);
+    expect(actualApi.updateTransaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a possible partial update when a write fails part-way', async () => {
+    mockRowsById({ 'tx-a': rowA(), 'tx-b': rowB() });
+    (actualApi.updateTransaction as unknown as Mock)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('disk full'));
+    const err = await linkTransfer('tx-a', 'tx-b', false, { settle: noWait }).catch((e) => e);
+    expect(err).toBeInstanceOf(TransferLinkError);
+    expect((err as Error).message).toContain('partially updated');
+    expect((err as Error).message).toContain('disk full');
+    expect((err as Error).message).toContain('get_transaction');
   });
 
   it('rejects two rows in the same account', async () => {

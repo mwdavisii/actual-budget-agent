@@ -310,6 +310,13 @@ describe('deleteTransaction', () => {
     expect(res).toEqual({ txId: 'tx-1', deleted: true, alsoDeleted: 'tx-2' });
   });
 
+  it('omits alsoDeleted for a split child, whose counterpart Actual only unlinks', async () => {
+    vi.mocked(getTransactionById).mockResolvedValue(makeTx({ transfer_id: 'tx-2', is_child: true }));
+    const res = await deleteTransaction('tx-1');
+    expect(actualApi.deleteTransaction).toHaveBeenCalledWith('tx-1');
+    expect(res).toEqual({ txId: 'tx-1', deleted: true });
+  });
+
   it('omits alsoDeleted for a non-transfer transaction', async () => {
     vi.mocked(getTransactionById).mockResolvedValue(makeTx());
     const res = await deleteTransaction('tx-1');

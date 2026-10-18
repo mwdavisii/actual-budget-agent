@@ -18,7 +18,7 @@ export function registerTransferTools(server: McpServer, _deps: McpDeps): void {
       inputSchema: {
         accountId: z.string().optional(),
         daysWindow: z.number().int().min(0).max(30).optional(),
-        sinceDate: z.string().optional(),
+        sinceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'sinceDate must be YYYY-MM-DD').optional(),
       },
     },
     async (args) => {
@@ -39,8 +39,9 @@ export function registerTransferTools(server: McpServer, _deps: McpDeps): void {
         'Both rows get the other account\'s transfer payee, are cross-linked, and are marked cleared if either was. ' +
         'Actual shares one notes value across linked rows, so differing notes are merged as "<A> | <B>". ' +
         'Actual also clears the category on both rows for same-type (on/off budget) transfers. ' +
-        'Requires exactly opposite non-zero amounts in different accounts; refuses rows that are already linked or are split parents. ' +
-        'Refuses reconciled rows (as Actual\'s UI asks for confirmation): ask the user, then pass allowReconciled:true. ' +
+        'Requires exactly opposite non-zero amounts in different accounts; refuses rows that are already linked, split parents, or split children. ' +
+        'A dry-run reports reconciledRows (ids of reconciled rows among the two); if it is non-empty, ask the user before calling with dryRun:false and allowReconciled:true ' +
+        '(as Actual\'s UI asks for confirmation). A real run with reconciled rows is refused without allowReconciled:true. ' +
         'DRY-RUN IS THE DEFAULT: pass dryRun:false only after the user confirmed the projection. ' +
         'The response has verified:true when a re-read confirmed the link; if verified is false, re-check with get_transaction before reporting success. ' +
         'To undo a link later, note that deleting either side deletes both.',

@@ -178,8 +178,10 @@ export async function deleteTransaction(
     throw new Error(`Transaction ${txId} not found`);
   }
 
-  // Actual deletes the linked counterpart of a transfer along with this row.
-  const counterpart = (current as unknown as { transfer_id?: string | null }).transfer_id;
+  // Actual deletes the linked counterpart of a transfer along with this row,
+  // except for a split child, whose counterpart is only unlinked.
+  const raw = current as unknown as { transfer_id?: string | null; is_child?: unknown };
+  const counterpart = raw.is_child ? null : raw.transfer_id;
 
   await actualApi.deleteTransaction(txId);
   return counterpart ? { txId, deleted: true, alsoDeleted: counterpart } : { txId, deleted: true };
