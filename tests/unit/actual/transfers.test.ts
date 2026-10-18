@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import {
   matchTransferPairs,
   findTransferCandidates,
+  linkTransfer,
+  TransferLinkError,
   type TransferTx,
 } from '../../../src/actual/transfers';
 import { actualApi } from '../../../src/actual/client';
@@ -173,5 +175,208 @@ describe('findTransferCandidates', () => {
     const pairs = await findTransferCandidates({ sinceDate: '2026-09-01', daysWindow: 1 });
     expect(chain.filter).toHaveBeenCalledWith({ date: { $gte: '2026-09-01' } });
     expect(pairs).toEqual([]);
+  });
+});
+
+type Row = Record<string, unknown>;
+
+function mockRowsById(rows: Record<string, Row>) {
+  q.mockImplementation(() => {
+    const state: { id?: string } = {};
+    const chain: Record<string, unknown> = {
+      filter: vi.fn((f: { id: string }) => {
+        state.id = f.id;
+        return chain;
+      }),
+      select: vi.fn(() => chain),
+      options: vi.fn(() => chain),
+      state,
+    };
+    return chain;
+  });
+  runQuery.mockImplementation(async (chain: { state: { id: string } }) => {
+    const row = rows[chain.state.id];
+    return { data: row ? [row] : [] };
+  });
+}
+
+function rawRow(overrides: Row): Row {
+  return {
+    id: 'tx-a',
+    date: '2026-10-01',
+    amount: -5000,
+    account: 'acc-checking',
+    payee: 'p-pay',
+    notes: 'ACH',
+    cleared: true,
+    transfer_id: null,
+    is_parent: false,
+    reconciled: false,
+    ...overrides,
+  };
+}
+
+const rowA = () => rawRow({});
+const rowB = () =>
+  rawRow({
+    id: 'tx-b',
+    date: '2026-10-02',
+    amount: 5000,
+    account: 'acc-card',
+    payee: 'p-card-co',
+    notes: null,
+    cleared: false,
+  });
+
+describe('linkTransfer', () => {
+  beforeEach(() => {
+    (actualApi.getPayees as unknown as Mock).mockResolvedValue([
+      { id: 'tp-checking', name: 'Transfer: Checking', transfer_acct: 'acc-checking' },
+      { id: 'tp-card', name: 'Transfer: Card', transfer_acct: 'acc-card' },
+      { id: 'p-pay', name: 'Payment' },
+    ]);
+  });
+
+  it('dry-run projects the linked rows and performs no writes', async () => {
+    mockRowsById({ 'tx-a': rowA(), 'tx-b': rowB() });
+
+    const res = await linkTransfer('tx-a', 'tx-b', true);
+
+    expect(res.dryRun).toBe(true);
+    expect(res.linked).toBe(false);
+    expect(res.before.a.payee).toBe('p-pay');
+    expect(res.after.a).toMatchObject({ payee: 'tp-card', transferId: 'tx-b', cleared: true, notes: 'ACH' });
+    expect(res.after.b).toMatchObject({ payee: 'tp-checking', transferId: 'tx-a', cleared: true, notes: 'ACH' });
+    expect(actualApi.updateTransaction).not.toHaveBeenCalled();
+    expect(actualApi.batchBudgetUpdates).not.toHaveBeenCalled();
+  });
+
+  const noWait = { attempts: 3, delayMs: 0 };
+
+  function simulateWrites(rows: Record<string, Row>) {
+    (actualApi.updateTransaction as unknown as Mock).mockImplementation(
+      async (id: string, f: { payee: string; transfer_id: string; cleared: boolean; notes: string | null }) => {
+        Object.assign(rows[id], { payee: f.payee, transfer_id: f.transfer_id, cleared: f.cleared, notes: f.notes });
+      }
+    );
+  }
+
+  it('writes both rows inside a batch with transfer payees, cross transfer_ids, cleared and shared notes', async () => {
+    const rows = { 'tx-a': rowA(), 'tx-b': rowB() };
+    mockRowsById(rows);
+    simulateWrites(rows);
+
+    const res = await linkTransfer('tx-a', 'tx-b', false, { settle: noWait });
+
+    expect(actualApi.batchBudgetUpdates).toHaveBeenCalledTimes(1);
+    expect(actualApi.updateTransaction).toHaveBeenNthCalledWith(1, 'tx-a', {
+      payee: 'tp-card',
+      transfer_id: 'tx-b',
+      cleared: true,
+      notes: 'ACH',
+    });
+    expect(actualApi.updateTransaction).toHaveBeenNthCalledWith(2, 'tx-b', {
+      payee: 'tp-checking',
+      transfer_id: 'tx-a',
+      cleared: true,
+      notes: 'ACH',
+    });
+    expect(res.dryRun).toBe(false);
+    expect(res.linked).toBe(true);
+    expect(res.verified).toBe(true);
+    expect(res.after.b).toMatchObject({ payee: 'tp-checking', transferId: 'tx-a', cleared: true });
+  });
+
+  it('reports verified=false and falls back to the projection when the link never becomes visible', async () => {
+    mockRowsById({ 'tx-a': rowA(), 'tx-b': rowB() }); // updateTransaction is a no-op mock
+    const res = await linkTransfer('tx-a', 'tx-b', false, { settle: noWait });
+    expect(res.linked).toBe(true);
+    expect(res.verified).toBe(false);
+    expect(res.after.a).toMatchObject({ payee: 'tp-card', transferId: 'tx-b' });
+  });
+
+  it('a split parent is rejected as a split parent, not as not-found', async () => {
+    mockRowsById({ 'tx-a': { ...rowA(), is_parent: true }, 'tx-b': rowB() });
+    await expect(linkTransfer('tx-a', 'tx-b', false)).rejects.toThrow(/split parent/);
+  });
+
+  it('merges differing non-empty notes as "<A> | <B>"', async () => {
+    mockRowsById({ 'tx-a': rowA(), 'tx-b': { ...rowB(), notes: 'PAYMENT' } });
+    const res = await linkTransfer('tx-a', 'tx-b', true);
+    expect(res.after.a.notes).toBe('ACH | PAYMENT');
+    expect(res.after.b.notes).toBe('ACH | PAYMENT');
+  });
+
+  it('writes notes unsanitized but returns them sanitized', async () => {
+    const rows = { 'tx-a': { ...rowA(), notes: 'a<b' }, 'tx-b': rowB() };
+    mockRowsById(rows);
+    simulateWrites(rows);
+    const res = await linkTransfer('tx-a', 'tx-b', false, { settle: noWait });
+    expect(actualApi.updateTransaction).toHaveBeenCalledWith(
+      'tx-a',
+      expect.objectContaining({ notes: 'a<b' })
+    );
+    expect(res.before.a.notes).toBe('a&lt;b');
+  });
+
+  it('does not duplicate identical notes', async () => {
+    mockRowsById({ 'tx-a': rowA(), 'tx-b': { ...rowB(), notes: 'ACH' } });
+    const res = await linkTransfer('tx-a', 'tx-b', true);
+    expect(res.after.a.notes).toBe('ACH');
+  });
+
+  async function expectRejected(a: Row, b: Row, message: RegExp) {
+    mockRowsById({ [String(a.id)]: a, [String(b.id)]: b });
+    const err = await linkTransfer(String(a.id), String(b.id), false).catch((e) => e);
+    expect(err).toBeInstanceOf(TransferLinkError);
+    expect((err as Error).message).toMatch(message);
+    expect(actualApi.updateTransaction).not.toHaveBeenCalled();
+  }
+
+  it('rejects linking a transaction to itself', async () => {
+    mockRowsById({ 'tx-a': rowA() });
+    await expect(linkTransfer('tx-a', 'tx-a', false)).rejects.toThrow(/itself/);
+  });
+
+  it('rejects a missing transaction with a "not found" message', async () => {
+    mockRowsById({ 'tx-a': rowA() });
+    await expect(linkTransfer('tx-a', 'tx-missing', false)).rejects.toThrow(/Transaction tx-missing not found/);
+  });
+
+  it('rejects an already-linked transaction', async () => {
+    await expectRejected(rowA(), { ...rowB(), transfer_id: 'tx-z' }, /already linked/);
+  });
+
+  it('rejects a split parent', async () => {
+    await expectRejected({ ...rowA(), is_parent: true }, rowB(), /split/);
+  });
+
+  it('rejects a reconciled row unless allowReconciled is set', async () => {
+    await expectRejected({ ...rowA(), reconciled: true }, rowB(), /reconciled.*allowReconciled/);
+
+    const rows = { 'tx-a': { ...rowA(), reconciled: true }, 'tx-b': rowB() };
+    mockRowsById(rows);
+    simulateWrites(rows);
+    const res = await linkTransfer('tx-a', 'tx-b', false, { allowReconciled: true, settle: noWait });
+    expect(res.linked).toBe(true);
+  });
+
+  it('rejects two rows in the same account', async () => {
+    await expectRejected(rowA(), { ...rowB(), account: 'acc-checking' }, /same account/);
+  });
+
+  it('rejects amounts that are not exactly opposite', async () => {
+    await expectRejected(rowA(), { ...rowB(), amount: 4999 }, /opposite/);
+  });
+
+  it('rejects zero amounts', async () => {
+    await expectRejected({ ...rowA(), amount: 0 }, { ...rowB(), amount: 0 }, /non-zero/);
+  });
+
+  it('rejects when an account has no transfer payee', async () => {
+    (actualApi.getPayees as unknown as Mock).mockResolvedValue([
+      { id: 'tp-checking', name: 'Transfer: Checking', transfer_acct: 'acc-checking' },
+    ]);
+    await expectRejected(rowA(), rowB(), /No transfer payee/);
   });
 });
