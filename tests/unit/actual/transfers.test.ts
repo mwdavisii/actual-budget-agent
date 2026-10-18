@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
-import { matchTransferPairs, type TransferTx } from '../../../src/actual/transfers';
+import {
+  matchTransferPairs,
+  findTransferCandidates,
+  type TransferTx,
+} from '../../../src/actual/transfers';
 import { actualApi } from '../../../src/actual/client';
 
 vi.mock('../../../src/actual/client', () => ({
@@ -83,5 +87,91 @@ describe('matchTransferPairs', () => {
     const b2 = tx({ id: 'b2', date: '2026-10-10', amount: 2000, account: 'acc-2' });
     const pairs = matchTransferPairs([a1, b1, a2, b2], 3);
     expect(pairs.map((p) => p.a.id)).toEqual(['a2', 'a1']);
+  });
+});
+
+function mockFindQuery(rows: Array<Record<string, unknown>>) {
+  const chain: Record<string, Mock> = {};
+  for (const m of ['filter', 'select', 'options']) chain[m] = vi.fn(() => chain);
+  q.mockReturnValue(chain);
+  runQuery.mockResolvedValue({ data: rows });
+  return chain;
+}
+
+function dbRow(overrides: Record<string, unknown>) {
+  return {
+    id: 'x',
+    date: '2026-10-01',
+    amount: -5000,
+    account: 'acc-checking',
+    payee: 'p-1',
+    notes: null,
+    cleared: false,
+    ...overrides,
+  };
+}
+
+describe('findTransferCandidates', () => {
+  beforeEach(() => {
+    (actualApi.getAccounts as unknown as Mock).mockResolvedValue([
+      { id: 'acc-checking', name: 'Checking' },
+      { id: 'acc-card', name: 'Card' },
+      { id: 'acc-savings', name: 'Savings' },
+    ]);
+    (actualApi.getPayees as unknown as Mock).mockResolvedValue([
+      { id: 'p-1', name: 'Card Payment' },
+      { id: 'p-2', name: 'Payment Thank You' },
+      { id: 'tp-card', name: 'Transfer: Card', transfer_acct: 'acc-card' },
+    ]);
+  });
+
+  it('returns enriched unique pairs and queries only unlinked, non-parent rows', async () => {
+    const chain = mockFindQuery([
+      dbRow({ id: 'a', account: 'acc-checking', amount: -5000, payee: 'p-1', notes: 'ACH <b>' }),
+      dbRow({ id: 'b', account: 'acc-card', amount: 5000, date: '2026-10-02', payee: 'p-2', cleared: true }),
+    ]);
+
+    const pairs = await findTransferCandidates({});
+
+    expect(chain.filter).toHaveBeenCalledWith({ transfer_id: null, is_parent: false });
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0].confidence).toBe('unique');
+    expect(pairs[0].a).toMatchObject({
+      id: 'a',
+      accountName: 'Checking',
+      payeeName: 'Card Payment',
+      cleared: false,
+      notes: 'ACH &lt;b&gt;',
+    });
+    expect(pairs[0].b).toMatchObject({ id: 'b', accountName: 'Card', cleared: true });
+  });
+
+  it('excludes rows that already use a transfer payee', async () => {
+    mockFindQuery([
+      dbRow({ id: 'a', account: 'acc-checking', amount: -5000 }),
+      dbRow({ id: 'b', account: 'acc-card', amount: 5000, payee: 'tp-card' }),
+    ]);
+    expect(await findTransferCandidates({})).toEqual([]);
+  });
+
+  it('keeps only pairs touching accountId, while still matching against other accounts', async () => {
+    mockFindQuery([
+      dbRow({ id: 'a', account: 'acc-checking', amount: -5000 }),
+      dbRow({ id: 'b', account: 'acc-card', amount: 5000 }),
+      dbRow({ id: 'c', account: 'acc-savings', amount: -700 }),
+      dbRow({ id: 'd', account: 'acc-card', amount: 700 }),
+    ]);
+    const pairs = await findTransferCandidates({ accountId: 'acc-checking' });
+    expect(pairs.map((p) => [p.a.id, p.b.id])).toEqual([['a', 'b']]);
+  });
+
+  it('forwards sinceDate and respects daysWindow', async () => {
+    const chain = mockFindQuery([
+      dbRow({ id: 'a', date: '2026-10-01', account: 'acc-checking', amount: -5000 }),
+      dbRow({ id: 'b', date: '2026-10-03', account: 'acc-card', amount: 5000 }),
+    ]);
+    const pairs = await findTransferCandidates({ sinceDate: '2026-09-01', daysWindow: 1 });
+    expect(chain.filter).toHaveBeenCalledWith({ date: { $gte: '2026-09-01' } });
+    expect(pairs).toEqual([]);
   });
 });

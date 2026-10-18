@@ -71,3 +71,45 @@ export function matchTransferPairs(rows: TransferTx[], daysWindow: number): Tran
         p.daysApart - q.daysApart || p.a.date.localeCompare(q.a.date) || p.a.id.localeCompare(q.a.id)
     );
 }
+
+export async function findTransferCandidates(opts: {
+  accountId?: string;
+  daysWindow?: number;
+  sinceDate?: string;
+}): Promise<TransferPair[]> {
+  const daysWindow = opts.daysWindow ?? 3;
+
+  const accounts = (await actualApi.getAccounts()) as Array<{ id: string; name?: string }>;
+  const accountMap = Object.fromEntries(accounts.map((a) => [a.id, a.name ?? '']));
+  const payees = (await actualApi.getPayees()) as Array<{
+    id: string;
+    name?: string;
+    transfer_acct?: string | null;
+  }>;
+  const payeeMap = Object.fromEntries(payees.map((p) => [p.id, p.name ?? '']));
+  const transferPayeeIds = new Set(payees.filter((p) => p.transfer_acct != null).map((p) => p.id));
+
+  let query = actualApi.q('transactions').filter({ transfer_id: null, is_parent: false });
+  if (opts.sinceDate) query = query.filter({ date: { $gte: opts.sinceDate } });
+  query = query.select(['id', 'date', 'amount', 'account', 'payee', 'notes', 'cleared']);
+  const result = await actualApi.runQuery(query);
+
+  const rows: TransferTx[] = (result as { data: Record<string, unknown>[] }).data
+    .filter((r) => !transferPayeeIds.has(String(r.payee)))
+    .map((r) => ({
+      id: String(r.id),
+      date: String(r.date),
+      amount: Number(r.amount),
+      account: String(r.account),
+      accountName: sanitize(accountMap[String(r.account)] ?? ''),
+      payee: r.payee == null ? null : String(r.payee),
+      payeeName: sanitize(payeeMap[String(r.payee)] ?? ''),
+      cleared: Boolean(r.cleared),
+      notes: r.notes == null ? null : sanitize(String(r.notes)),
+    }));
+
+  const pairs = matchTransferPairs(rows, daysWindow);
+  return opts.accountId
+    ? pairs.filter((p) => p.a.account === opts.accountId || p.b.account === opts.accountId)
+    : pairs;
+}
