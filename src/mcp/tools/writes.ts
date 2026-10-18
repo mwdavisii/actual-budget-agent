@@ -136,7 +136,9 @@ export function registerWriteTools(server: McpServer, _deps: McpDeps): void {
     'delete_transaction',
     {
       description:
-        'Delete a transaction by id. This action is permanent. Writes to Actual Budget.',
+        'Delete a transaction by id. This action is permanent. Writes to Actual Budget. ' +
+        'If the transaction is one side of a linked transfer, Actual also deletes the other side; ' +
+        'the response then includes alsoDeleted with the counterpart id.',
       inputSchema: {
         txId: z.string(),
       },

@@ -170,14 +170,19 @@ export async function updateTransactionFields(
   return { txId, changed, tx };
 }
 
-export async function deleteTransaction(txId: string): Promise<{ txId: string; deleted: boolean }> {
+export async function deleteTransaction(
+  txId: string
+): Promise<{ txId: string; deleted: boolean; alsoDeleted?: string }> {
   const current = await getTransactionById(txId);
   if (!current) {
     throw new Error(`Transaction ${txId} not found`);
   }
 
+  // Actual deletes the linked counterpart of a transfer along with this row.
+  const counterpart = (current as unknown as { transfer_id?: string | null }).transfer_id;
+
   await actualApi.deleteTransaction(txId);
-  return { txId, deleted: true };
+  return counterpart ? { txId, deleted: true, alsoDeleted: counterpart } : { txId, deleted: true };
 }
 
 export async function applyCategoryBulk(
