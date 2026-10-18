@@ -230,6 +230,8 @@ const rowB = () =>
 
 describe('linkTransfer', () => {
   beforeEach(() => {
+    // clearAllMocks keeps implementations; drop any simulateWrites fake from a previous test.
+    (actualApi.updateTransaction as unknown as Mock).mockReset();
     (actualApi.getPayees as unknown as Mock).mockResolvedValue([
       { id: 'tp-checking', name: 'Transfer: Checking', transfer_acct: 'acc-checking' },
       { id: 'tp-card', name: 'Transfer: Card', transfer_acct: 'acc-card' },
