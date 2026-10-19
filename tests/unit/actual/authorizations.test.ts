@@ -3,6 +3,7 @@ import {
   computeCarryOver,
   matchAuthorizations,
   findSupersededAuthorizations,
+  resolveSupersededAuthorization,
   AuthorizationResolveError,
   type AuthTx,
 } from '../../../src/actual/authorizations';
@@ -214,5 +215,129 @@ describe('findSupersededAuthorizations', () => {
     const only = await findSupersededAuthorizations({ accountId: 'acc-2' });
     expect(only).toHaveLength(1);
     expect(only[0].pending.id).toBe('pend2');
+  });
+});
+
+describe('resolveSupersededAuthorization', () => {
+  type Row = Record<string, unknown>;
+  let store: Map<string, Row>;
+  const settle = { attempts: 3, delayMs: 0 };
+
+  const base = (o: Row): Row => ({
+    date: '2026-10-01', amount: -5000, account: 'acc-1', payee: 'p-1', category: null, notes: null,
+    cleared: false, reconciled: false, transfer_id: null, is_parent: false, is_child: false, ...o,
+  });
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    store = new Map([
+      ['pend', base({ id: 'pend', category: 'c1', notes: 'P' })],
+      ['fin', base({ id: 'fin', amount: -6000, date: '2026-10-03', cleared: true, notes: 'F' })],
+    ]);
+    q.mockImplementation(() => {
+      let id: string | undefined;
+      const b: Record<string, unknown> = {};
+      b.filter = (f: { id?: string }) => { id = f.id; return b; };
+      b.options = () => b;
+      b.select = () => b;
+      b.id = () => id;
+      return b;
+    });
+    runQuery.mockImplementation(async (b: { id: () => string | undefined }) => {
+      const id = b.id();
+      return { data: id && store.has(id) ? [{ ...store.get(id)! }] : [] };
+    });
+    (actualApi.updateTransaction as Mock).mockImplementation(async (id: string, f: Row) => {
+      store.set(id, { ...store.get(id)!, ...f });
+    });
+    (actualApi.deleteTransaction as Mock).mockImplementation(async (id: string) => { store.delete(id); });
+  });
+
+  it('dry-run projects the result and writes nothing', async () => {
+    const r = await resolveSupersededAuthorization('pend', 'fin', true, { settle });
+    expect(r.dryRun).toBe(true);
+    expect(r.verified).toBe(false);
+    expect(r.deletedId).toBeNull();
+    expect(r.carriedOver).toEqual({ category: true, notes: true });
+    expect(r.after.final.category).toBe('c1');
+    expect(r.after.final.notes).toBe('F | P');
+    expect(actualApi.updateTransaction).not.toHaveBeenCalled();
+    expect(actualApi.deleteTransaction).not.toHaveBeenCalled();
+  });
+
+  it('updates the final row first, then deletes the pending row, and verifies', async () => {
+    const order: string[] = [];
+    (actualApi.updateTransaction as Mock).mockImplementation(async (id: string, f: Row) => {
+      order.push('update'); store.set(id, { ...store.get(id)!, ...f });
+    });
+    (actualApi.deleteTransaction as Mock).mockImplementation(async (id: string) => {
+      order.push('delete'); store.delete(id);
+    });
+    const r = await resolveSupersededAuthorization('pend', 'fin', false, { settle });
+    expect(order).toEqual(['update', 'delete']);
+    expect(actualApi.updateTransaction).toHaveBeenCalledWith('fin', { category: 'c1', notes: 'F | P' });
+    expect(actualApi.deleteTransaction).toHaveBeenCalledWith('pend');
+    expect(r.deletedId).toBe('pend');
+    expect(r.verified).toBe(true);
+    expect(store.has('pend')).toBe(false);
+  });
+
+  it('skips the update when nothing carries over', async () => {
+    store.set('pend', base({ id: 'pend', category: null, notes: null }));
+    const r = await resolveSupersededAuthorization('pend', 'fin', false, { settle });
+    expect(actualApi.updateTransaction).not.toHaveBeenCalled();
+    expect(r.carriedOver).toEqual({ category: false, notes: false });
+    expect(r.deletedId).toBe('pend');
+  });
+
+  it('only writes the field that changes', async () => {
+    store.set('pend', base({ id: 'pend', category: 'c1', notes: null }));
+    await resolveSupersededAuthorization('pend', 'fin', false, { settle });
+    expect(actualApi.updateTransaction).toHaveBeenCalledWith('fin', { category: 'c1' });
+  });
+
+  it('does not delete when the update fails', async () => {
+    (actualApi.updateTransaction as Mock).mockRejectedValue(new Error('boom'));
+    await expect(resolveSupersededAuthorization('pend', 'fin', false, { settle })).rejects.toThrow('boom');
+    expect(actualApi.deleteTransaction).not.toHaveBeenCalled();
+    expect(store.has('pend')).toBe(true);
+  });
+
+  it('explains the state when the delete fails after a successful update', async () => {
+    (actualApi.deleteTransaction as Mock).mockRejectedValue(new Error('nope'));
+    const e = await resolveSupersededAuthorization('pend', 'fin', false, { settle }).catch((err) => err);
+    expect(e).toBeInstanceOf(AuthorizationResolveError);
+    expect(e.message).toMatch(/final transaction fin was updated.*pending transaction pend still exists/is);
+  });
+
+  it('reports verified:false when the delete is not visible in time', async () => {
+    (actualApi.deleteTransaction as Mock).mockImplementation(async () => {}); // row never disappears
+    const r = await resolveSupersededAuthorization('pend', 'fin', false, { settle });
+    expect(r.verified).toBe(false);
+    expect(r.deletedId).toBe('pend');
+  });
+
+  const rejects = async (pend: Row | null, fin: Row | null, re: RegExp) => {
+    if (pend) store.set('pend', base({ id: 'pend', ...pend })); else store.delete('pend');
+    if (fin) store.set('fin', base({ id: 'fin', amount: -6000, cleared: true, ...fin })); else store.delete('fin');
+    await expect(resolveSupersededAuthorization('pend', 'fin', true, { settle })).rejects.toThrow(re);
+  };
+
+  it('validates inputs', async () => {
+    await expect(resolveSupersededAuthorization('pend', 'pend', true, { settle })).rejects.toThrow(/itself/);
+    await rejects(null, {}, /pend not found/);
+    await rejects({}, null, /fin not found/);
+    await rejects({}, { account: 'acc-2' }, /same account/);
+    await rejects({}, { payee: 'p-2' }, /same payee/);
+    await rejects({ amount: 5000 }, { amount: 6000 }, /expenses|negative/);
+    await rejects({ amount: 0 }, { amount: 0 }, /expenses|negative/);
+    await rejects({}, { amount: -4000 }, /larger/);
+    await rejects({ cleared: true }, {}, /pending.*uncleared|uncleared/i);
+    await rejects({}, { cleared: false }, /final.*cleared|must be cleared/i);
+    await rejects({ transfer_id: 'x' }, {}, /linked/);
+    await rejects({}, { transfer_id: 'x' }, /linked/);
+    await rejects({ is_parent: true }, {}, /split/);
+    await rejects({}, { is_child: true }, /split/);
+    await rejects({ reconciled: true }, {}, /reconciled/);
   });
 });
