@@ -310,6 +310,14 @@ describe('resolveSupersededAuthorization', () => {
     expect(e.message).toMatch(/final transaction fin was updated.*pending transaction pend still exists/is);
   });
 
+  it('verifies even when nothing changes and the final notes have surrounding whitespace', async () => {
+    store.set('pend', base({ id: 'pend', category: null, notes: null }));
+    store.set('fin', base({ id: 'fin', amount: -6000, cleared: true, notes: ' F ' }));
+    const r = await resolveSupersededAuthorization('pend', 'fin', false, { settle });
+    expect(actualApi.updateTransaction).not.toHaveBeenCalled();
+    expect(r.verified).toBe(true);
+  });
+
   it('reports verified:false when the delete is not visible in time', async () => {
     (actualApi.deleteTransaction as Mock).mockImplementation(async () => {}); // row never disappears
     const r = await resolveSupersededAuthorization('pend', 'fin', false, { settle });
@@ -329,6 +337,7 @@ describe('resolveSupersededAuthorization', () => {
     await rejects({}, null, /fin not found/);
     await rejects({}, { account: 'acc-2' }, /same account/);
     await rejects({}, { payee: 'p-2' }, /same payee/);
+    await rejects({ payee: null }, { payee: null }, /same payee/);
     await rejects({ amount: 5000 }, { amount: 6000 }, /expenses|negative/);
     await rejects({ amount: 0 }, { amount: 0 }, /expenses|negative/);
     await rejects({}, { amount: -4000 }, /larger/);

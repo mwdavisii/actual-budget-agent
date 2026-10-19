@@ -251,7 +251,7 @@ async function readResolved(
   for (let i = 0; i < settle.attempts; i++) {
     const [p, f] = [await getRawTx(pendingId), await getRawTx(finalId)];
     if (!p && f && f.category === expected.category && f.notes === expected.notes) return f;
-    await sleep(settle.delayMs);
+    if (i < settle.attempts - 1) await sleep(settle.delayMs);
   }
   return null;
 }
@@ -279,7 +279,7 @@ export async function resolveSupersededAuthorization(
   if (pending.account !== final.account) {
     throw new AuthorizationResolveError('Transactions must be in the same account');
   }
-  if (pending.payee !== final.payee) {
+  if (pending.payee == null || pending.payee !== final.payee) {
     throw new AuthorizationResolveError('Transactions must have the same payee');
   }
   if (pending.amount >= 0 || final.amount >= 0) {
