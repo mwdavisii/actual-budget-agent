@@ -103,3 +103,80 @@ export function matchAuthorizations(
         a.pending.id.localeCompare(b.pending.id)
     );
 }
+
+export async function findSupersededAuthorizations(opts: {
+  accountId?: string;
+  sinceDate?: string;
+  daysWindow?: number;
+  maxTipPercent?: number;
+}): Promise<AuthorizationPair[]> {
+  const daysWindow = opts.daysWindow ?? 7;
+  const maxTipPercent = opts.maxTipPercent ?? 50;
+
+  const accounts = (await actualApi.getAccounts()) as Array<{ id: string; name?: string }>;
+  const accountMap = Object.fromEntries(accounts.map((a) => [a.id, a.name ?? '']));
+  const payees = (await actualApi.getPayees()) as Array<{
+    id: string;
+    name?: string;
+    transfer_acct?: string | null;
+  }>;
+  const payeeMap = Object.fromEntries(payees.map((p) => [p.id, p.name ?? '']));
+  const transferPayeeIds = new Set(payees.filter((p) => p.transfer_acct != null).map((p) => p.id));
+  const categories = (await actualApi.getCategories()) as Array<{ id: string; name?: string }>;
+  const categoryMap = Object.fromEntries(categories.map((c) => [c.id, c.name ?? '']));
+
+  let query = actualApi.q('transactions').filter({ transfer_id: null, is_parent: false, is_child: false });
+  if (opts.sinceDate) query = query.filter({ date: { $gte: opts.sinceDate } });
+  query = query.select(['id', 'date', 'amount', 'account', 'payee', 'category', 'notes', 'cleared', 'reconciled']);
+  const result = await actualApi.runQuery(query);
+
+  const rows: AuthTx[] = (result as { data: Record<string, unknown>[] }).data
+    .filter((r) => !transferPayeeIds.has(String(r.payee)))
+    .map((r) => toAuthTx(r, accountMap, payeeMap, categoryMap));
+
+  const pairs = matchAuthorizations(rows, { daysWindow, maxTipPercent });
+  const scoped = opts.accountId ? pairs.filter((p) => p.pending.account === opts.accountId) : pairs;
+  return scoped.map((p) => ({
+    ...p,
+    pending: outputTx(p.pending),
+    final: outputTx(p.final),
+    carryOver: {
+      category: p.carryOver.category,
+      notes: p.carryOver.notes == null ? null : sanitize(p.carryOver.notes),
+    },
+  }));
+}
+
+function toAuthTx(
+  r: Record<string, unknown>,
+  accountMap: Record<string, string>,
+  payeeMap: Record<string, string>,
+  categoryMap: Record<string, string>
+): AuthTx {
+  const category = r.category == null ? null : String(r.category);
+  return {
+    id: String(r.id),
+    date: String(r.date),
+    amount: Number(r.amount),
+    account: String(r.account),
+    accountName: accountMap[String(r.account)] ?? '',
+    payee: r.payee == null ? null : String(r.payee),
+    payeeName: payeeMap[String(r.payee)] ?? '',
+    category,
+    categoryName: category == null ? null : (categoryMap[category] ?? null),
+    cleared: Boolean(r.cleared),
+    reconciled: Boolean(r.reconciled),
+    notes: r.notes == null ? null : String(r.notes),
+  };
+}
+
+// Names and notes are written to Actual unmodified; sanitize only what is returned to the model.
+function outputTx(t: AuthTx): AuthTx {
+  return {
+    ...t,
+    accountName: sanitize(t.accountName),
+    payeeName: sanitize(t.payeeName),
+    categoryName: t.categoryName == null ? null : sanitize(t.categoryName),
+    notes: t.notes == null ? null : sanitize(t.notes),
+  };
+}
