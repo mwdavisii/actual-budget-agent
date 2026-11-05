@@ -63,11 +63,12 @@ describe('budget MCP tools', () => {
     }
   });
 
-  it('lists exactly 28 registered tools', async () => {
+  it('lists exactly 29 registered tools', async () => {
     const client = await connectClient();
     const names = (await client.listTools()).tools.map((t) => t.name);
-    expect(names).toHaveLength(28);
-    expect(new Set(names).size).toBe(28);
+    expect(names).toHaveLength(29);
+    expect(new Set(names).size).toBe(29);
+    expect(names).toContain('set_budgets');
   });
 
   it('get_accounts returns accounts with balances', async () => {

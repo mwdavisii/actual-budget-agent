@@ -17,6 +17,7 @@ import { registerWriteTools } from './tools/writes';
 import { registerRulesTools } from './tools/rules';
 import { registerAnalysisTools } from './tools/analysis';
 import { registerTransferTools } from './tools/transfers';
+import { registerSetBudgetTools } from './tools/budgets';
 import { registerAuthorizationTools } from './tools/authorizations';
 import { jsonContent, errorContent } from './tools/shared';
 
@@ -171,5 +172,6 @@ export function registerBudgetTools(server: McpServer, deps: McpDeps): void {
   registerRulesTools(server, deps);
   registerAnalysisTools(server, deps);
   registerTransferTools(server, deps);
+  registerSetBudgetTools(server, deps);
   registerAuthorizationTools(server, deps);
 }
